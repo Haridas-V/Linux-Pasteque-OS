@@ -1,0 +1,11 @@
+# Build artifacts
+out/
+work/
+tools/root/
+tools/.aptwork/
+*.iso
+*.iso.sha256
+*.pkg.tar.zst
+__pycache__/
+*.pyc
+tests/artifacts/

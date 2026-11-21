@@ -1,0 +1,40 @@
+# ---- Pastèque Linux : liste des paquets de l'ISO (étape 1 : base) ----
+# Dépôts officiels Arch uniquement à cette étape ; les paquets AUR/locaux
+# seront ajoutés via packages.local.x86_64 + le repo local embarqué.
+
+# Noyau / base
+base
+linux
+linux-firmware
+mkinitcpio
+mkinitcpio-archiso
+
+# Réseau / outils système
+networkmanager
+curl
+ca-certificates
+sudo
+pciutils
+usbutils
+kmod
+kbd
+less
+file
+which
+rsync
+cpio
+xz
+zstd
+git
+vim
+nano
+man-db
+man-pages
+reflector
+
+# Boot / arrêt propres
+systemd
+systemd-sysvcompat
+
+# Clés / signature (production)
+archlinux-keyring
