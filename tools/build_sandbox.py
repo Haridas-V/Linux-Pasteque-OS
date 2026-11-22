@@ -105,7 +105,12 @@ def tool_env():
 
 def run(cmd, **kw):
     print("[build] $ " + " ".join(cmd), flush=True)
-    subprocess.run(cmd, check=True, env=tool_env(), **kw)
+    env = tool_env()
+    if "python" in os.path.basename(str(cmd[0])):
+        # Ne PAS injecter LD_LIBRARY_PATH=tools/root (libs Debian trixie) dans un
+        # process Python : mélange d'ABI -> "stack smashing detected" sur certains runners.
+        env = dict(os.environ)
+    subprocess.run(cmd, check=True, env=env, **kw)
 
 
 def chroot(cmd, **kw):
