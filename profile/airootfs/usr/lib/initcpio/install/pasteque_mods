@@ -1,6 +1,5 @@
 #!/usr/bin/bash
 build() {
     add_runscript
-    add_module sr_mod cdrom ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3 \\
-        usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net
+    add_module sr_mod cdrom ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3 usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net
 }
