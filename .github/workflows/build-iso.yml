@@ -8,29 +8,24 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Dépendances Python
-        run: python3 -m pip install zstandard pillow
-      - name: Sonde imports (diagnostic)
-        env:
-          PYTHONFAULTHANDLER: "1"
-        run: python3 -c "import importlib; [importlib.import_module(m) for m in ['io','lzma','os','re','shutil','tarfile','urllib.request','ssl','hashlib','zlib']]; print('imports OK')"
-      - name: Outillage de build (debs, sans root)
-        env:
-          PYTHONFAULTHANDLER: "1"
-        run: python3 tools/fetch_deb_tools.py
-      - name: Build ISO complet (rootless)
-        run: python3 tools/build_sandbox.py all
-      - name: Compatibilité balenaEtcher (isohybrid)
-        run: python3 tools/check_isohybrid.py out/*.iso
-      - name: Test boot QEMU depuis ISO (TCG)
-        run: python3 tests/run_vm_test.py --timeout 480 || true
-      - name: Test boot QEMU depuis "clé USB flashée" (simulation Etcher)
-        run: python3 tests/usb_boot_test.py --uefi --timeout 600 || true
-      - name: Suite live complète (chroot + install disque + boot installé)
-        run: python3 tests/live_shell.py out/pasteque-dev.iso || true
+      # Le build rootless a besoin des user-namespaces (unshare -rmpf chroot), bloqués
+      # sur les runners hébergés : on tourne tout dans un conteneur trixie privilégié,
+      # dont les libs correspondent à celles des debs extraits dans tools/root.
+      - name: Build ISO + tests VM (conteneur trixie privilégié)
+        run: |
+          docker run --rm --privileged -v "$PWD:/src" -w /src debian:trixie-slim bash -c '
+            set -e
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends python3 python3-pil python3-zstandard ca-certificates
+            python3 tools/fetch_deb_tools.py
+            python3 tools/build_sandbox.py all
+            python3 tools/check_isohybrid.py out/*.iso
+            set +e
+            python3 tests/run_vm_test.py --timeout 480
+            python3 tests/usb_boot_test.py --uefi --timeout 600
+            python3 tests/live_shell.py out/pasteque-dev.iso
+          '
       - name: Upload ISO (artifact)
         uses: actions/upload-artifact@v4
         with:

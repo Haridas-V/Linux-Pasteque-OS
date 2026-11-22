@@ -9,9 +9,11 @@ Fetches the latest release assets from GitHub into work/extras/ :
 
 Usage: python3 tools/fetch_extras.py [destdir]
 """
+import fnmatch
+import json
 import os
-import subprocess
 import sys
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -26,8 +28,24 @@ EXTRAS = [
 ]
 
 
-def gh(*args):
-    return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+def gh_api_latest_assets(repo):
+    """Derniers assets de la release 'latest' d'un repo GitHub, via l'API publique (pas besoin de gh)."""
+    url = "https://api.github.com/repos/%s/releases/latest" % repo
+    req = urllib.request.Request(url, headers={"User-Agent": "pasteque-build/1.0",
+                                               "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        data = json.load(r)
+    return [(a["name"], a["browser_download_url"]) for a in data.get("assets", [])]
+
+
+def download(url, dest):
+    req = urllib.request.Request(url, headers={"User-Agent": "pasteque-build/1.0"})
+    with urllib.request.urlopen(req, timeout=600) as r, open(dest, "wb") as f:
+        while True:
+            chunk = r.read(1 << 20)
+            if not chunk:
+                break
+            f.write(chunk)
 
 
 def main():
@@ -43,10 +61,18 @@ def main():
         for repo in repos:
             print("[extras] %s <- %s (latest, pattern %s)" % (prefix, repo, pattern), flush=True)
             try:
-                subprocess.run(["gh", "release", "download", "--repo", repo,
-                                "--pattern", pattern, "--dir", out], check=True)
+                assets = gh_api_latest_assets(repo)
+                match = [a for a in assets if fnmatch.fnmatch(a[0], pattern)]
+                x86 = [a for a in match if "x86_64" in a[0] and "aarch64" not in a[0].lower() and "arm" not in a[0].lower()]
+                if x86:
+                    match = x86
+                if not match:
+                    raise RuntimeError("aucun asset ne correspond au pattern %s" % pattern)
+                name, url = match[0]
+                print("[extras]   asset: %s" % name, flush=True)
+                download(url, os.path.join(out, name))
                 break
-            except subprocess.CalledProcessError as e:
+            except Exception as e:
                 last_err = e
         else:
             print("[extras] ERREUR %s: %s" % (prefix, last_err), flush=True)
