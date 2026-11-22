@@ -105,10 +105,11 @@ def tool_env():
 
 def run(cmd, **kw):
     print("[build] $ " + " ".join(cmd), flush=True)
-    env = tool_env()
-    if "python" in os.path.basename(str(cmd[0])):
-        # Ne PAS injecter LD_LIBRARY_PATH=tools/root (libs Debian trixie) dans un
-        # process Python : mélange d'ABI -> "stack smashing detected" sur certains runners.
+    if str(cmd[0]).startswith(TROOT):
+        env = tool_env()  # binaire extrait des debs : a besoin de LD_LIBRARY_PATH=tools/root
+    else:
+        # Binaire host (python, unshare, chroot, bash...) : JAMAIS de LD_LIBRARY_PATH
+        # vers tools/root, sinon mélange glibc (ex. Ubuntu 24.04 + libs trixie) -> stack smashing.
         env = dict(os.environ)
     subprocess.run(cmd, check=True, env=env, **kw)
 
