@@ -89,11 +89,14 @@ def boot_mode(usb, sock, outdir, name, timeout, uefi):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    argv = sys.argv[1:]
     timeout = 600
-    if "--timeout" in sys.argv:
-        timeout = int(sys.argv[sys.argv.index("--timeout") + 1])
-    do_uefi = "--uefi" in sys.argv
+    if "--timeout" in argv:
+        i = argv.index("--timeout")
+        timeout = int(argv[i + 1])
+        del argv[i:i + 2]
+    do_uefi = "--uefi" in argv
+    args = [a for a in argv if not a.startswith("--")]
     iso = args[0] if args else sorted(glob.glob(os.path.join(REPO, "out/*.iso")))[-1]
     run_id = time.strftime("%Y%m%d-%H%M%S")
     outdir = os.path.join(ART, run_id)

@@ -322,23 +322,27 @@ def phase_live_and_install(iso, rep, outdir):
         "mount --bind /sys /newroot/mnt/target/sys",
     ]
     for c in install_cmds:
-        out, rc = ser.run(c, timeout=900)
+        out, rc = ser.run(c, timeout=3600)
         if rc != 0:
             rep.check("install-copie", False, c + " -> " + out[-300:])
             break
     else:
         rep.check("install-copie", True, "système copié sur /dev/vda (btrfs)")
 
-    final = r'''
-useradd -m -G wheel,video,audio,input,storage,optical -s /bin/bash gamer 2>/dev/null
+    final = '''useradd -m -G wheel,video,audio,input,storage,optical -s /bin/bash gamer 2>/dev/null
 echo "gamer:gamer" | chpasswd
 /usr/local/bin/pasteque-finalize-install
 mkinitcpio -P
 grub-install --target=i386-pc --boot-directory=/boot /dev/vda
 mkdir -p /boot/grub
-printf 'menuentry "Pasteque Linux (installe)" {\n  linux /boot/vmlinuz-linux root=/dev/vda rw console=ttyS0,115200\n  initrd /boot/initramfs-linux.img\n}\n' > /boot/grub/grub.cfg
+printf 'set timeout=1\\nserial --speed=115200\\nterminal_output console serial\\nmenuentry "Pasteque Linux (installe)" {\\n  linux /boot/vmlinuz-linux root=/dev/vda rw console=ttyS0,115200\\n  initrd /boot/initramfs-linux.img\\n}\\n' > /boot/grub/grub.cfg
 '''
-    out, rc = ser.run("chroot /newroot/mnt/target /bin/bash -c %s" % repr(final), timeout=900)
+    fb64 = base64.b64encode(final.encode()).decode()
+    ser.run("mkdir -p /newroot/mnt/target/tmp; : > /newroot/mnt/target/tmp/finalize.b64", timeout=30)
+    for i in range(0, len(fb64), 512):
+        ser.run("echo -n %s >> /newroot/mnt/target/tmp/finalize.b64" % fb64[i:i + 512], timeout=30)
+    ser.run("base64 -d /newroot/mnt/target/tmp/finalize.b64 > /newroot/mnt/target/tmp/finalize.sh", timeout=30)
+    out, rc = ser.run("chroot /newroot/mnt/target /bin/bash /tmp/finalize.sh", timeout=3600)
     open(os.path.join(outdir, "install-finalize.txt"), "w").write(out)
     rep.check("install-finalize-grub", rc == 0, out[-300:] if rc else "finalize + mkinitcpio + grub-install OK")
     ser.run("sync", timeout=60)

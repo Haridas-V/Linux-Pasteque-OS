@@ -37,6 +37,9 @@ PRESETS=('default')
 default_image="/boot/initramfs-linux.img"
 default_kver="/boot/vmlinuz-linux"
 EOC
+mkdir -p /etc/pacman.d/gnupg
+timeout 60 pacman-key --init 2>/dev/null || true
+timeout 120 pacman-key --populate archlinux 2>/dev/null || true
 mkinitcpio -P 2>/dev/null || true
 # installer les extras pour l'utilisateur créé
 /usr/bin/python3 /usr/local/bin/pasteque-install-extras 2>/dev/null || true

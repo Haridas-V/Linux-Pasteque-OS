@@ -41,6 +41,10 @@ et captures d'écran horodatées.
 |---|---|---|---|
 | `20261121-230859` | base (867 MiB) | **BOOT_OK** — cible multi-user/graphical atteinte, `pasteque login:` | serial.log + result.txt |
 | `20261122-031341` | complète (4926 MiB, KDE+gaming+Calamares) | **BOOT_OK** — SDDM démarré, service `pasteque-liveuser` OK, cible graphical atteinte | serial.log (`Started Simple Desktop Display Manager`) + result.txt |
+| `20261122-095851` | complète (4976 MiB) | **BOOT BIOS CD OK** + **BOOT UEFI CD OK** (OVMF/pflash → grub → noyau → systemd), sha256 OK, El Torito BIOS+UEFI OK | `serial-bios.log`, `serial-uefi.log`, `report.md` |
+| `20261122-0952xx` (manuel) | 4976 MiB | **BOOT UEFI depuis clé USB flashée (dd brut, comme Etcher)** OK — partition MBR 0xEF → grub → noyau → systemd | `/tmp/uefi-usb3.log` ; check `tools/check_isohybrid.py` = ETCHER_COMPATIBLE (MBR 0x55AA, part. bootable 0x17, part. 0xEF) |
+| `20261122-123324` | complète (5005 MiB, db pacman embarquée) | **Batterie live 30 PASS / 0 FAIL** en chroot (Calamares 60 modules, sécurité, FR, surcouche anti-frustration : appindexer, corbeille, steamlibs, anti-cheat, extras, unités systemd, btrfs-progs, grub) | `tests/artifacts/20261122-123324-liveonly/live-tests.txt` |
+| `20261122-082724` | 4926 MiB | **USB_BOOT_OK** — copie brute de l'ISO sur disque + boot MBR isohybrid (simulation flash Etcher, BIOS) | `tests/artifacts/20261122-082724/` |
 
 **Non testé en VM** (émulation TCG sans GPU) : la session Plasma Wayland elle-même
 après autologin SDDM → à valider en matériel (point 4 ci-dessus).

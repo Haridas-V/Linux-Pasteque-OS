@@ -46,16 +46,17 @@ t hostname bash -c 'grep -q pasteque /etc/hostname'
 
 # --- 4. Scripts de la surcouche : syntaxe + exécution réelle ---
 t py-compile-all python3 - <<'PY'
-import glob, subprocess, sys
+import glob, os
 for f in glob.glob("/usr/local/bin/pasteque-*"):
-    head = open(f, "rb").read(64)
-    if b"python" in head.split(b"\n")[0]:
-        r = subprocess.run([sys.executable, "-m", "py_compile", f], capture_output=True)
+    head = open(f, "rb").read(64).split(b"\n")[0]
+    if b"python" in head:
+        src = open(f, encoding="utf-8", errors="replace").read()
+        compile(src, f, "exec")
     else:
-        r = subprocess.run(["/bin/bash", "-n", f], capture_output=True)
-    assert r.returncode == 0, (f, r.stderr.decode()[:300])
+        rc = os.system("/bin/bash -n %s >/dev/null 2>&1" % f)
+        assert rc == 0, f
 print("compile OK")
-PY 
+PY
 t appmanager-import env QT_QPA_PLATFORM=offscreen python3 -c "
 import importlib.util, importlib.machinery
 loader = importlib.machinery.SourceFileLoader('am', '/usr/local/bin/pasteque-appmanager')
@@ -66,25 +67,26 @@ print('import appmanager OK')"
 # utilisateur de test
 id testeur 2>/dev/null || useradd -m -G wheel testeur
 H=/home/testeur
+chown -R testeur:testeur $H 2>/dev/null
 # 4a. appindexer : .exe + AppImage -> entrées .desktop
 mkdir -p $H/Jeux $H/Applications
 cp /bin/bash $H/Jeux/fakegame.exe; chmod +x $H/Jeux/fakegame.exe
 printf '#!/bin/sh\necho ok\n' > $H/Applications/monapp.AppImage; chmod +x $H/Applications/monapp.AppImage
-runuser -u testeur -- /usr/bin/python3 /usr/local/bin/pasteque-appindexer
+chown -R testeur:testeur $H 2>/dev/null; runuser -u testeur -- /usr/bin/python3 /usr/local/bin/pasteque-appindexer
 t appindexer-exe bash -c "ls $H/.local/share/applications/pasteque-fakegame.desktop && grep -q 'wine' $H/.local/share/applications/pasteque-fakegame.desktop"
 t appindexer-appimage bash -c "ls $H/.local/share/applications/pasteque-monapp.desktop"
 
 # 4b. corbeille rotative
 mkdir -p $H/.local/share/Trash/files
 echo "donnees-importantes" > $H/.local/share/Trash/files/rapport.txt
-runuser -u testeur -- /usr/bin/python3 /usr/local/bin/pasteque-rotating-trash
+chown -R testeur:testeur $H 2>/dev/null; runuser -u testeur -- /usr/bin/python3 /usr/local/bin/pasteque-rotating-trash
 t trash-copie bash -c "ls $H/.local/share/pasteque-trash/rapport.txt.* >/dev/null"
-runuser -u testeur -- /usr/local/bin/pasteque-trash-restore rapport.txt
+chown -R testeur:testeur $H 2>/dev/null; runuser -u testeur -- /usr/local/bin/pasteque-trash-restore rapport.txt
 t trash-restaure bash -c "grep -q donnees-importantes $H/Restaures-pasteque/rapport.txt"
 
 # 4c. steamlibs : bibliothèque sur disque externe
 mkdir -p /run/media/testeur/USB1/SteamLibrary/steamapps
-runuser -u testeur -- /usr/bin/python3 /usr/local/bin/pasteque-steamlibs
+chown -R testeur:testeur $H 2>/dev/null; runuser -u testeur -- /usr/bin/python3 /usr/local/bin/pasteque-steamlibs
 t steamlibs-vdf bash -c "grep -q '/run/media/testeur/USB1/SteamLibrary' $H/.steam/steamapps/libraryfolders.vdf"
 
 # 4d. anti-cheat : avertissement injecté pour un jeu KO (Valorant, appid 2881570)
@@ -93,9 +95,9 @@ cat > $H/.steam/steamapps/appmanifest_2881570.acf <<'ACF'
 "AppState" { "appid" "2881570" "name" "VALORANT" }
 ACF
 printf '"Software"\n{\n"Valve"\n{\n"Steam"\n{\n}\n}\n}\n' > $H/.steam/userdata/0/config/localconfig.vdf
-runuser -u testeur -- /usr/bin/python3 /usr/local/bin/pasteque-anticheat >/tmp/anticheat.out 2>&1
+chown -R testeur:testeur $H 2>/dev/null; runuser -u testeur -- /usr/bin/python3 /usr/local/bin/pasteque-anticheat >/tmp/anticheat.out 2>&1
 t anticheat-run bash -c "test -s /tmp/anticheat.out && grep -q Traceback /tmp/anticheat.out && exit 1 || exit 0"
-t anticheat-launchoptions bash -c "grep -q 'LaunchOptions_2881570' $H/.steam/userdata/0/config/localconfig.vdf"
+t anticheat-launchoptions bash -c "grep -q 'LaunchOptions_2881570' $H/.steam/userdata/0/config/localconfig.vdf || { echo '--- vdf:'; cat $H/.steam/userdata/0/config/localconfig.vdf; exit 1; }"
 t anticheat-db python3 -c "import json; d=json.load(open('/usr/share/pasteque/anticheat-db.json')); assert d['appids']['2881570']['status']=='KO'; print('db OK')"
 
 # 4e. extras embarqués présents
@@ -111,8 +113,8 @@ assert 'IMMUTABILITY_LEVEL' in c and 'AUTO_UPDATE' in c; print('conf OK')"
 t systemd-units systemd-analyze verify /etc/systemd/system/pasteque-liveuser.service /etc/systemd/system/pasteque-extras.service /etc/systemd/system/pasteque-update.service /etc/systemd/system/pasteque-bootcheck.service /etc/systemd/system/pasteque-immutable-usr.service /etc/systemd/user/pasteque-appindexer.service /etc/systemd/user/pasteque-rotating-trash.service /etc/systemd/user/pasteque-anticheat.service 2>/dev/null
 
 # 4g. btrfs (snapshots/rollback) + grub (install)
-t btrfs-progs pacman -Q btrfs-progs
-t grub pacman -Q grub
+t btrfs-progs bash -c 'test -x /usr/bin/mkfs.btrfs && test -d /var/lib/pacman/local/btrfs-progs-*'
+t grub bash -c 'test -x /usr/bin/grub-install && test -d /var/lib/pacman/local/grub-*'
 
 echo "RESULT live-tests PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
