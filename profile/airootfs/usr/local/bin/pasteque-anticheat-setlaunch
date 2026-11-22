@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""Injecte/retire l'option de lancement anti-cheat d'un appid dans localconfig.vdf."""
+import re
+import sys
+
+appid, mode, path = sys.argv[1], sys.argv[2], sys.argv[3]  # mode: set|unset
+content = open(path).read()
+warn = 'pasteque-anticheat-warn %s %%command%%' % appid
+if mode == "set":
+    if warn in content:
+        sys.exit(0)
+    # insère dans "LaunchOptions" du bloc app si présent, sinon crée la clé globale
+    pat = re.compile(r'("Software"\s*\{[^{}]*"Valve"\s*\{[^{}]*"Steam"\s*\{)')
+    m = pat.search(content)
+    if m:
+        insert_at = m.end()
+        content = content[:insert_at] + '\n"LaunchOptions_%s"\t\t"%s"' % (appid, warn) + content[insert_at:]
+    else:
+        content = content.replace("{", '{\n"LaunchOptions_%s"\t\t"%s"' % (appid, warn), 1)
+else:
+    content = re.sub(r'\n"LaunchOptions_%s"\t\t"[^"]*"' % appid, "", content)
+open(path, "w").write(content)

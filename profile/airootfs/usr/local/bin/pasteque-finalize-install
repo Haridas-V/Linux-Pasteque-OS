@@ -1,0 +1,29 @@
+#!/bin/bash
+# Exécuté par Calamares (dans la cible) à la fin de l'installation.
+set -e
+# sécurité : root verrouillé, sudo pour wheel, pare-feu actif, ssh non installé
+passwd -l root || true
+mkdir -p /etc/sudoers.d
+echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/010-pasteque-wheel
+chmod 440 /etc/sudoers.d/010-pasteque-wheel
+systemctl enable firewalld 2>/dev/null || true
+# plus d'autologin live sur le système installé
+rm -f /etc/sddm.conf.d/10-pasteque.conf
+cat > /etc/sddm.conf.d/10-pasteque.conf <<'EOC'
+[General]
+DisplayServer=wayland
+EOC
+systemctl enable sddm 2>/dev/null || true
+# hostname + locale FR
+hostnamectl set-hostname pasteque 2>/dev/null || echo pasteque > /etc/hostname
+locale-gen 2>/dev/null || true
+# services Pastèque
+systemctl enable pasteque-liveuser pasteque-extras pasteque-steamlibs pasteque-bootcheck 2>/dev/null || true
+systemctl enable pasteque-update.timer pasteque-steamlibs.timer 2>/dev/null || true
+# initramfs de la cible
+mkinitcpio -P 2>/dev/null || true
+# installer les extras pour l'utilisateur créé
+/usr/bin/python3 /usr/local/bin/pasteque-install-extras 2>/dev/null || true
+# entrée de menu pour le gestionnaire d'applications Pastèque
+update-desktop-database /usr/share/applications 2>/dev/null || true
+echo "[pasteque-finalize] OK"

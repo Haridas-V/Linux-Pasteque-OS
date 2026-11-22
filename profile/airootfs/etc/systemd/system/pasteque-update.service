@@ -1,0 +1,5 @@
+[Unit]
+Description=Pasteque - mise à jour silencieuse (idle uniquement)
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/bin/pasteque-update

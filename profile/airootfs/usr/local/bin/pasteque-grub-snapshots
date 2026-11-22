@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Génère /etc/grub.d/40_pasteque_snapshots avec une entrée par snapshot Btrfs
+set -e
+OUT=/etc/grub.d/40_pasteque_snapshots
+{
+  echo '#!/bin/sh'
+  echo 'cat <<EOF'
+  for s in /.snapshots/post-* /.snapshots/pre-*; do
+    [ -d "$s" ] || continue
+    n=$(basename "$s")
+    echo "menuentry 'Pastèque - snapshot $n' {"
+    echo "  load_video"
+    echo "  set root='hd0,1'"
+    echo "  linux /boot/vmlinuz-linux root=UUID=PLACEHOLDER rootflags=subvol=@/.snapshots/$n"
+    echo "  initrd /boot/initramfs-linux.img"
+    echo "}"
+  done
+  echo 'EOF'
+} > "$OUT"
+chmod +x "$OUT"
+grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true

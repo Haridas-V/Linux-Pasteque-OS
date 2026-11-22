@@ -1,0 +1,9 @@
+[Unit]
+Description=Pasteque - validation du boot après mise à jour (rollback auto)
+After=multi-user.target
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/bin/pasteque-bootcheck
+TimeoutStartSec=15min
+[Install]
+WantedBy=multi-user.target

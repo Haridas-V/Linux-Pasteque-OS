@@ -1,0 +1,7 @@
+[Unit]
+Description=Relance la détection des bibliothèques Steam (disques externes)
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target

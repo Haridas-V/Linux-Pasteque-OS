@@ -9,3 +9,4 @@ tools/.aptwork/
 __pycache__/
 *.pyc
 tests/artifacts/
+profile/airootfs/opt/

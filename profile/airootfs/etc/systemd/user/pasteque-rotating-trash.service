@@ -1,0 +1,5 @@
+[Unit]
+Description=Pasteque - corbeille de sauvegarde rotative
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/bin/pasteque-rotating-trash

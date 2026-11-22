@@ -1,0 +1,21 @@
+---
+componentName: pasteque
+strings:
+  productName: "Pastèque Linux"
+  version: "édition No Frustration"
+  shortProductName: "Pastèque"
+  shortVersion: "No Frustration"
+  bootloaderEntryName: "Pastèque Linux"
+  productUrl: "https://github.com/Haridas-V/Linux-Pasteque-OS"
+  supportUrl: "https://github.com/Haridas-V/Linux-Pasteque-OS/blob/main/docs/MAINTENANCE.md"
+images:
+  logo: "logo.png"
+  banner: "banner.png"
+style:
+  sidebarBackground: "#1b1e23"
+  sidebarText: "#e6e6e6"
+  sidebarTextCurrent: "#7fd88f"
+  sidebarIconSize: 48
+  windowExpanding: false
+  windowMinimumWidth: 800
+  windowMinimumHeight: 560

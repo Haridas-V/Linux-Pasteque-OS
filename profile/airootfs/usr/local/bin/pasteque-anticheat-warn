@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Wrapper de lancement : avertit puis exécute la commande du jeu.
+# Usage interne : pasteque-anticheat-warn <appid> <commande...>
+APPID="$1"; shift
+DB=/usr/share/pasteque/anticheat-db.json
+NAME=$(python3 -c "import json;print(json.load(open('$DB'))['appids'].get('$APPID',{}).get('name','jeu'))" 2>/dev/null)
+STATUS=$(python3 -c "import json;print(json.load(open('$DB'))['appids'].get('$APPID',{}).get('status',''))" 2>/dev/null)
+DETAIL=$(python3 -c "import json;print(json.load(open('$DB'))['appids'].get('$APPID',{}).get('detail',''))" 2>/dev/null)
+if [ "$STATUS" = "KO" ]; then
+  notify-send -u critical "Pastèque — anti-cheat" "$NAME : statut $STATUS. $DETAIL" 2>/dev/null
+  sleep 5
+fi
+exec "$@"

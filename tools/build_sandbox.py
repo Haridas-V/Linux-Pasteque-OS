@@ -160,11 +160,84 @@ def step_install():
             else:
                 shutil.copy2(s, d)
     print("[build] overlay applied", flush=True)
+    # conf pacman de production (celle livrée dans l'ISO)
+    shutil.copy2(os.path.join(PROFILE, "pacman.conf"), os.path.join(ROOTFS, "etc/pacman.conf"))
     # locales
     chroot(["/bin/bash", "-c", "locale-gen 2>/dev/null || true"])
     # sandbox build config (ne pas écraser la conf de production livrée dans l'ISO)
     chroot(["/bin/bash", "-c",
             "cp /etc/pacman.d/mirrorlist.build /etc/pacman.d/mirrorlist.sandbox && true"])
+
+
+
+
+def _fetch_aur_pkgbuild(pkgbase, dest):
+    url = "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=%s" % pkgbase
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": "pasteque-build/1.0"})
+    data = urllib.request.urlopen(req, timeout=60).read().decode()
+    os.makedirs(dest, exist_ok=True)
+    with open(os.path.join(dest, "PKGBUILD"), "w") as f:
+        f.write(data)
+    return data
+
+
+def _pkgbuild_deps(pkgbuild_text):
+    import re
+    deps = []
+    for key in ("depends", "makedepends", "checkdepends"):
+        for m in re.finditer(r"^%s=\((.*?)\)" % key, pkgbuild_text, re.M | re.S):
+            for d in m.group(1).split():
+                d = re.split(r"[<>=:]", d, 1)[0].strip().strip("'\"")
+                if d:
+                    deps.append(d)
+    return deps
+
+
+def step_aur():
+    """Compile les paquets AUR (packages-aur/*) en chroot et les installe."""
+    aur_root = os.path.join(WORK, "aur-build")
+    os.makedirs(aur_root, exist_ok=True)
+    for pkgbase in sorted(os.listdir(os.path.join(REPO, "packages-aur"))):
+        src_dir = os.path.join(aur_root, pkgbase)
+        pb = _fetch_aur_pkgbuild(pkgbase, src_dir)
+        deps = _pkgbuild_deps(pb)
+        if deps:
+            print("[aur] deps de build:", " ".join(deps), flush=True)
+            chroot(["/usr/bin/pacman", "--config", "/etc/pacman.conf.build", "-S",
+                    "--noconfirm", "--needed", "--overwrite", "*", "--asdeps"] + deps)
+        # user builder + makepkg
+        chroot(["/bin/bash", "-c",
+                "id builder 2>/dev/null || useradd -m builder; "
+                "mkdir -p /build/%s && cp /dev/null /build/%s/.keep" % (pkgbase, pkgbase)])
+        # copier le PKGBUILD dans le chroot
+        shutil.copy2(os.path.join(src_dir, "PKGBUILD"), os.path.join(ROOTFS, "build", pkgbase, "PKGBUILD"))
+        chroot(["/bin/bash", "-c",
+                "chown -R builder:builder /build/%s && "
+                "su builder -c 'cd /build/%s && HOME=/home/builder makepkg -sf --noconfirm -d'" % (pkgbase, pkgbase)])
+        built = glob.glob(os.path.join(ROOTFS, "build", pkgbase, "*.pkg.tar.zst"))
+        built = [b for b in built if not b.endswith(".src.tar.gz")]
+        if not built:
+            raise RuntimeError("[aur] aucun paquet compilé pour %s" % pkgbase)
+        for b in built:
+            chroot(["/usr/bin/pacman", "--config", "/etc/pacman.conf.build", "-U",
+                    "--noconfirm", "--overwrite", "*", "/build/%s/%s" % (pkgbase, os.path.basename(b))])
+        print("[aur] %s installé: %s" % (pkgbase, [os.path.basename(b) for b in built]), flush=True)
+
+def step_extras():
+    extras_src = os.path.join(WORK, "extras")
+    run([sys.executable, os.path.join(TOOLS, "fetch_extras.py"), extras_src])
+    dest_root = os.path.join(ROOTFS, "opt/pasteque/extras")
+    for prefix in ("proton-ge", "wine-ge", "heroic", "teams"):
+        src = os.path.join(extras_src, prefix)
+        dst = os.path.join(dest_root, prefix)
+        if not os.path.isdir(src) or not os.listdir(src):
+            print("[extras] %s absent (build dégradé)" % prefix, flush=True)
+            continue
+        os.makedirs(dst, exist_ok=True)
+        for f in os.listdir(src):
+            shutil.copy2(os.path.join(src, f), os.path.join(dst, f))
+    print("[extras] copiés dans l'airootfs", flush=True)
 
 
 def step_initramfs():
@@ -205,6 +278,21 @@ def step_iso():
     assert os.path.exists(initrd_src), "initramfs manquante: lancez d'abord l'étape initramfs"
     shutil.copy2(initrd_src, os.path.join(iso, "boot/x86_64/initramfs-linux.img"))
 
+    # restaure le helper setuid de dbus (illisible sinon depuis le cache pacman)
+    import tarfile as _tf
+    for _pkg in glob.glob(os.path.join(ROOTFS, "var/cache/pacman/pkg/dbus-*.pkg.tar.zst")):
+        try:
+            with open(_pkg, "rb") as _f:
+                import zstandard as _z
+                _raw = _z.ZstdDecompressor().stream_reader(_f)
+                with _tf.open(fileobj=_raw, mode="r|") as _t:
+                    for _m in _t:
+                        if _m.name.endswith("usr/lib/dbus-daemon-launch-helper"):
+                            _t.extract(_m, ROOTFS, filter="fully_trusted")
+                            _p = os.path.join(ROOTFS, "usr/lib/dbus-daemon-launch-helper")
+                            os.chmod(_p, 0o4755)
+        except Exception as e:
+            print("[iso] dbus helper:", e, flush=True)
     # squashfs de l'airootfs
     excl = ["-e", "boot", "dev", "proc", "sys", "tmp", "run", "mnt", "media",
             "var/cache/pacman", "var/lib/pacman", "var/log", "root", "home",
@@ -212,7 +300,7 @@ def step_iso():
     run([os.path.join(TROOT, "usr/bin/mksquashfs"), ROOTFS,
          os.path.join(iso, "arch/x86_64/airootfs.sfs"),
          "-comp", "xz", "-b", "1M", "-Xbcj", "x86",
-         "-processors", str(os.cpu_count() or 4), "-noappend", "-no-progress"] + excl)
+         "-processors", str(os.cpu_count() or 4), "-noappend", "-no-progress", "-all-root"] + excl)
 
     # isolinux (BIOS)
     isolinux_bin = os.path.join(TROOT, "usr/lib/ISOLINUX/isolinux.bin")
@@ -276,9 +364,11 @@ STEPS = {
     "tools": step_tools,
     "bootstrap": step_bootstrap,
     "install": step_install,
+    "extras": step_extras,
+    "aur": step_aur,
     "initramfs": step_initramfs,
     "iso": step_iso,
-    "all": lambda: [step_tools(), step_bootstrap(), step_install(), step_initramfs(), step_iso()],
+    "all": lambda: [step_tools(), step_bootstrap(), step_install(), step_aur(), step_extras(), step_initramfs(), step_iso()],
 }
 
 if __name__ == "__main__":

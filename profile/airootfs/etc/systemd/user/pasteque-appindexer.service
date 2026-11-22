@@ -1,0 +1,5 @@
+[Unit]
+Description=Pasteque - indexation automatique des applications (.exe, AppImages)
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/bin/pasteque-appindexer

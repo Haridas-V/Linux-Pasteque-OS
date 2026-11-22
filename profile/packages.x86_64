@@ -1,15 +1,19 @@
-# ---- Pastèque Linux : liste des paquets de l'ISO (étape 1 : base) ----
-# Dépôts officiels Arch uniquement à cette étape ; les paquets AUR/locaux
-# seront ajoutés via packages.local.x86_64 + le repo local embarqué.
+# ---- Pastèque Linux : paquets de l'ISO (dépôts officiels Arch) ----
+# Tout est embarqué dans l'ISO : installation 100 % hors-ligne.
+# Les paquets AUR (Heroic, Teams, Proton-GE, Wine-GE) sont pré-téléchargés
+# au build (tools/fetch_extras.py) et embarqués dans /opt/pasteque/extras.
 
-# Noyau / base
+# ===== Noyau / base =====
 base
 linux
 linux-firmware
 mkinitcpio
 mkinitcpio-archiso
+systemd
+systemd-sysvcompat
+archlinux-keyring
 
-# Réseau / outils système
+# ===== Réseau / outils =====
 networkmanager
 curl
 ca-certificates
@@ -31,10 +35,156 @@ nano
 man-db
 man-pages
 reflector
+wget
+unzip
+p7zip
+fuse2
+fuse3
+polkit
+udisks2
 
-# Boot / arrêt propres
-systemd
-systemd-sysvcompat
+# ===== GPU AMD complet (Mesa RADV, Vulkan, VA-API) =====
+mesa
+lib32-mesa
+vulkan-radeon
+lib32-vulkan-radeon
+libva-mesa-driver
+lib32-libva-mesa-driver
+vulkan-tools
+vulkan-mesa-layers
+lib32-vulkan-mesa-layers
+mesa-utils
 
-# Clés / signature (production)
-archlinux-keyring
+# ===== KDE Plasma 6 + Wayland =====
+plasma-desktop
+plasma-workspace
+kwin
+sddm
+systemsettings
+discover
+konsole
+dolphin
+ark
+kate
+spectacle
+gwenview
+elisa
+plasma-pa
+powerdevil
+kscreen
+breeze
+breeze-gtk
+network-manager-applet
+xdg-desktop-portal-kde
+xdg-desktop-portal-gtk
+xdg-user-dirs
+kwallet-pam
+bluedevil
+print-manager
+system-config-printer
+
+# ===== Audio (PipeWire) =====
+pipewire
+lib32-pipewire
+pipewire-alsa
+pipewire-pulse
+pipewire-jack
+wireplumber
+alsa-utils
+alsa-plugins
+pavucontrol
+
+# ===== Codecs complets (H.264, HEVC, AV1, audio) =====
+ffmpeg
+gst-libav
+gst-plugins-base
+gst-plugins-good
+gst-plugins-bad
+gst-plugins-ugly
+x264
+x265
+libva-utils
+
+# ===== Bureautique / web =====
+firefox
+firefox-i18n-fr
+thunderbird
+thunderbird-i18n-fr
+libreoffice-still
+libreoffice-still-fr
+hunspell-fr
+hyphen-fr
+mythes-fr
+
+# ===== Gaming =====
+steam
+lutris
+gamemode
+lib32-gamemode
+mangohud
+lib32-mangohud
+corectrl
+obs-studio
+wine-staging
+wine-gecko
+wine-mono
+winetricks
+cabextract
+# Proton-GE / Wine-GE / Heroic / Teams : embarqués via tools/fetch_extras.py
+
+# ===== Multimédia =====
+vlc
+kdenlive
+gimp
+krita
+audacity
+
+# ===== Utilitaires système =====
+flatpak
+cups
+cups-pdf
+simple-scan
+sane-airscan
+hplip
+firewalld
+# SSH non installé -> désactivé par défaut
+
+# ===== Polices / icônes / thème =====
+noto-fonts
+noto-fonts-cjk
+ttf-dejavu
+ttf-liberation
+ttf-jetbrains-mono
+papirus-icon-theme
+breeze-icons
+
+# ===== Surcouche Pastèque (étape 4) =====
+python
+python-pyqt6
+python-pyqt6-sip
+desktop-file-utils
+icoutils
+libnotify
+btrfs-progs
+grub
+efibootmgr
+polkit-kde-agent
+xdg-desktop-portal
+
+# ===== Calamares (installateur graphique) + dépendances runtime =====
+qt6-base
+qt6-declarative
+qt6-svg
+qt6-tools
+kpmcore
+libpwquality
+yaml-cpp
+polkit-qt6-1
+appstream-qt
+boost
+kconfig
+kcoreaddons
+ki18n
+solid
+kparts
+kio

@@ -1,0 +1,9 @@
+[Unit]
+Description=Pasteque - installation des extras embarqués (Proton-GE, Wine-GE, AppImages)
+After=local-fs.target
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/bin/pasteque-install-extras
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

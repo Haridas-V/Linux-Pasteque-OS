@@ -1,0 +1,8 @@
+#!/bin/bash
+# Crée l'utilisateur "live" uniquement s'il n'existe aucun utilisateur régulier
+# (session ISO). Sur le système installé, Calamares a déjà créé l'utilisateur.
+set -e
+if ! awk -F: '$3 >= 1000 && $3 < 65534 { found=1 } END { exit !found }' /etc/passwd; then
+    useradd -m -G wheel,video,audio,input,storage,optical -s /bin/bash live 2>/dev/null || true
+fi
+passwd -l root >/dev/null 2>&1 || true

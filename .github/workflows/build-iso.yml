@@ -1,0 +1,26 @@
+name: build-iso
+on:
+  push:
+    branches: [ main, vibe/* ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dépendances Python
+        run: pip install zstandard pillow
+      - name: Outillage de build (debs, sans root)
+        run: python3 tools/fetch_deb_tools.py
+      - name: Build ISO complet (rootless)
+        run: python3 tools/build_sandbox.py all
+      - name: Test boot QEMU (TCG)
+        run: python3 tests/run_vm_test.py --timeout 480 || true
+      - name: Upload ISO (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pasteque-iso
+          path: |
+            out/*.iso
+            out/*.sha256
+            tests/artifacts/*/result.txt

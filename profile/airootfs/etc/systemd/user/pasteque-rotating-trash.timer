@@ -1,0 +1,7 @@
+[Unit]
+Description=Corbeille de sauvegarde rotative (toutes les 5 min)
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target

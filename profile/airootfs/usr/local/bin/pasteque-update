@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Mise à jour silencieuse Pastèque :
+- uniquement si AUTO_UPDATE=1 et (machine idle si UPDATE_ONLY_WHEN_IDLE=1)
+- snapshot Btrfs de / avant/après, entrées GRUB auto, flag de boot pour rollback.
+"""
+import os
+import subprocess
+import sys
+import time
+
+CONF = "/etc/pasteque/pasteque.conf"
+SNAPDIR = "/.snapshots"
+FLAG = "/var/lib/pasteque/update-pending"
+
+
+def conf():
+    c = {"AUTO_UPDATE": "1", "UPDATE_ONLY_WHEN_IDLE": "1", "AUTO_ROLLBACK": "1"}
+    try:
+        for line in open(CONF):
+            line = line.strip()
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                c[k.strip()] = v.strip()
+    except OSError:
+        pass
+    return c
+
+
+def is_idle():
+    try:
+        r = subprocess.run(["loginctl", "show-session", "$(loginctl | awk '/seat0/ && $3 != \"\" {print $1; exit}')",
+                            "--property=IdleHint", "--value"], capture_output=True, text=True, timeout=10)
+        if r.stdout.strip() == "yes":
+            return True
+        r = subprocess.run(["busctl", "--user", "get-property", "org.freedesktop.login1",
+                            "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "IdleHint"],
+                           capture_output=True, text=True, timeout=10)
+        return "true" in r.stdout
+    except Exception:
+        return False
+
+
+def sh(cmd):
+    print("[pasteque-update]", " ".join(cmd) if isinstance(cmd, list) else cmd, flush=True)
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def snapshot(tag):
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    name = "%s-%s" % (tag, ts)
+    os.makedirs(SNAPDIR, exist_ok=True)
+    r = sh(["btrfs", "subvolume", "snapshot", "-r", "/", os.path.join(SNAPDIR, name)])
+    return name if r.returncode == 0 else None
+
+
+def main():
+    c = conf()
+    if c.get("AUTO_UPDATE") != "1":
+        return
+    if c.get("UPDATE_ONLY_WHEN_IDLE") == "1" and not is_idle():
+        print("[pasteque-update] machine active, report.", flush=True)
+        return
+    pre = snapshot("pre")
+    if pre is None:
+        print("[pasteque-update] snapshot pre échoué (Btrfs requis), update quand même sans rollback", flush=True)
+    r = sh(["pacman", "-Syu", "--noconfirm"])
+    if r.returncode != 0:
+        print("[pasteque-update] pacman a échoué:", r.stderr[-500:], flush=True)
+        return
+    sh(["flatpak", "update", "-y", "--noninteractive"])
+    post = snapshot("post")
+    if post:
+        sh(["/usr/local/bin/pasteque-grub-snapshots"])
+        if c.get("AUTO_ROLLBACK") == "1":
+            open(FLAG, "w").write(post + "\n")
+    print("[pasteque-update] OK, snapshots:", pre, post, flush=True)
+
+
+if __name__ == "__main__":
+    main()

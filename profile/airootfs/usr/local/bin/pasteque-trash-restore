@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Restaure un fichier de la corbeille de sauvegarde : pasteque-trash-restore <nom>"""
+import glob
+import os
+import shutil
+import sys
+
+HOME = os.path.expanduser("~")
+STORE = os.path.join(HOME, ".local/share/pasteque-trash")
+DEST = os.path.join(HOME, "Restaures-pasteque")
+
+if len(sys.argv) < 2:
+    print("fichiers dispo :")
+    for e in sorted(glob.glob(os.path.join(STORE, "*")), key=os.path.getmtime):
+        print(" ", os.path.basename(e))
+    sys.exit(1)
+pat = os.path.join(STORE, sys.argv[1] + "*")
+cands = sorted(glob.glob(pat), key=os.path.getmtime)
+if not cands:
+    print("introuvable:", sys.argv[1])
+    sys.exit(1)
+src = cands[-1]
+name = os.path.basename(src).rsplit(".", 1)[0]
+os.makedirs(DEST, exist_ok=True)
+dst = os.path.join(DEST, name)
+if os.path.isdir(src) and not os.path.islink(src):
+    shutil.copytree(src, dst, symlinks=True)
+else:
+    shutil.copy2(src, dst)
+print("restauré dans", dst)

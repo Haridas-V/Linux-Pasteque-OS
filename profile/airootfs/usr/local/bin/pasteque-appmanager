@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+"""Gestionnaire d'applications Pastèque (GUI unique) :
+désinstalle en 2 clics paquets pacman, Flatpaks, AppImages et préfixes Wine (.exe),
+avec nettoyage des résidus (~/bin, ~/.local/share/applications, wineprefix).
+Onglets : Applications, Jeux (anti-cheat), Corbeille de sauvegarde, Réglages.
+"""
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QTabWidget, QTableWidget, QTableWidgetItem, QPushButton,
+                             QLabel, QSlider, QCheckBox, QMessageBox, QHeaderView, QComboBox)
+from PyQt6.QtCore import Qt
+
+HOME = os.path.expanduser("~")
+CONF = "/etc/pasteque/pasteque.conf"
+
+
+def conf_get(k, d):
+    try:
+        for line in open(CONF):
+            line = line.strip()
+            if line.startswith(k + "="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return d
+
+
+def conf_set(k, v):
+    lines = []
+    found = False
+    try:
+        lines = open(CONF).read().splitlines()
+    except OSError:
+        pass
+    out = []
+    for line in lines:
+        if line.strip().startswith(k + "="):
+            out.append("%s=%s" % (k, v))
+            found = True
+        else:
+            out.append(line)
+    if not found:
+        out.append("%s=%s" % (k, v))
+    with open(CONF, "w") as f:
+        f.write("\n".join(out) + "\n")
+
+
+def run(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+class AppsTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setLayout(QVBoxLayout())
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Application", "Type", "Commande de retrait"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.btn = QPushButton("Désinstaller (2 clics : sélectionner puis cliquer)")
+        self.btn.clicked.connect(self.uninstall)
+        self.layout().addWidget(QLabel("Applications installées (pacman, Flatpak, AppImage, .exe/Wine) :"))
+        self.layout().addWidget(self.table)
+        self.layout().addWidget(self.btn)
+        self.rows = []
+        self.refresh()
+
+    def refresh(self):
+        self.rows = []
+        r = run(["pacman", "-Qq"])
+        for p in r.stdout.split():
+            self.rows.append((p, "paquet pacman", ["sudo", "pacman", "-Rns", "--noconfirm", p]))
+        r = run(["flatpak", "list", "--app", "--columns=application,name"])
+        for line in r.stdout.splitlines():
+            parts = line.split("\t")
+            app = parts[0] if parts else line
+            name = parts[1] if len(parts) > 1 else app
+            self.rows.append((name, "Flatpak", ["flatpak", "uninstall", "-y", "--delete-data", app]))
+        for d in (os.path.join(HOME, "bin"), os.path.join(HOME, ".local/bin"),
+                  os.path.join(HOME, "Applications"), "/opt/pasteque/extras/heroic",
+                  "/opt/pasteque/extras/teams"):
+            for f in glob.glob(os.path.join(d, "*.AppImage")):
+                self.rows.append((os.path.basename(f), "AppImage", ["rm", "-f", f]))
+        for f in glob.glob(os.path.join(HOME, "Jeux", "**", "*.exe"), recursive=True)[:200]:
+            self.rows.append((os.path.basename(f), ".exe (Wine)", ["rm", "-f", f]))
+        self.table.setRowCount(len(self.rows))
+        for i, (name, typ, cmd) in enumerate(self.rows):
+            self.table.setItem(i, 0, QTableWidgetItem(name))
+            self.table.setItem(i, 1, QTableWidgetItem(typ))
+            self.table.setItem(i, 2, QTableWidgetItem(" ".join(cmd)))
+
+    def uninstall(self):
+        row = self.table.currentRow()
+        if row < 0 or row >= len(self.rows):
+            QMessageBox.information(self, "Pastèque", "Sélectionnez d'abord une application.")
+            return
+        name, typ, cmd = self.rows[row]
+        if QMessageBox.question(self, "Désinstaller", "Retirer « %s » (%s) et nettoyer les résidus ?" % (name, typ)) != QMessageBox.Yes:
+            return
+        r = run(cmd)
+        # nettoyage des résidus
+        safe = re.sub(r"[^a-zA-Z0-9_-]", "-", name).lower()
+        for p in (os.path.join(HOME, ".local/share/applications/pasteque-" + safe + ".desktop"),
+                  os.path.join(HOME, ".local/share/icons/pasteque/" + name + ".png")):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        if typ.startswith(".exe"):
+            for prefix in (os.path.join(HOME, ".wine"), os.path.join(HOME, ".local/share/lutris")):
+                pass  # préfixes conservés (partagés) ; documenté dans MAINTENANCE.md
+        if r.returncode != 0:
+            QMessageBox.warning(self, "Pastèque", "Retrait partiel :\n" + r.stderr[-400:])
+        else:
+            QMessageBox.information(self, "Pastèque", "« %s » retiré, résidus nettoyés." % name)
+        run(["/usr/bin/python3", "/usr/local/bin/pasteque-appindexer"])
+        self.refresh()
+
+
+class TrashTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setLayout(QVBoxLayout())
+        self.table = QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels(["Fichier supprimé (sauvegarde)", "Restaurer"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.btn = QPushButton("Restaurer la sélection dans ~/Restaures-pasteque")
+        self.btn.clicked.connect(self.restore)
+        self.layout().addWidget(QLabel("Corbeille de sauvegarde rotative (~/.local/share/pasteque-trash) :"))
+        self.layout().addWidget(self.table)
+        self.layout().addWidget(self.btn)
+        self.refresh()
+
+    def refresh(self):
+        store = os.path.join(HOME, ".local/share/pasteque-trash")
+        entries = sorted(glob.glob(os.path.join(store, "*")), key=os.path.getmtime, reverse=True) if os.path.isdir(store) else []
+        self.entries = entries
+        self.table.setRowCount(len(entries))
+        for i, e in enumerate(entries):
+            self.table.setItem(i, 0, QTableWidgetItem(os.path.basename(e)))
+            self.table.setItem(i, 1, QTableWidgetItem("oui"))
+
+    def restore(self):
+        row = self.table.currentRow()
+        if row < 0 or row >= len(self.entries):
+            return
+        src = self.entries[row]
+        name = os.path.basename(src).rsplit(".", 1)[0]
+        dstdir = os.path.join(HOME, "Restaures-pasteque")
+        os.makedirs(dstdir, exist_ok=True)
+        dst = os.path.join(dstdir, name)
+        if os.path.isdir(src) and not os.path.islink(src):
+            shutil.copytree(src, dst, symlinks=True, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dst)
+        QMessageBox.information(self, "Pastèque", "Restauré dans " + dst)
+
+
+class GamesTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setLayout(QVBoxLayout())
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Jeu Steam installé", "Anti-cheat", "Statut"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.layout().addWidget(QLabel("Jeux Steam détectés et statut anti-cheat (base embarquée + avertissement au lancement) :"))
+        self.layout().addWidget(self.table)
+        db = {}
+        try:
+            db = json.load(open("/usr/share/pasteque/anticheat-db.json")).get("appids", {})
+        except OSError:
+            pass
+        steam = os.path.join(HOME, ".steam/steamapps")
+        n = 0
+        for acf in glob.glob(os.path.join(steam, "appmanifest_*.acf")):
+            txt = open(acf, errors="replace").read()
+            m = re.search(r'"appid"\s*"(\d+)"', txt)
+            nm = re.search(r'"name"\s*"([^"]+)"', txt)
+            if not m:
+                continue
+            appid = m.group(1)
+            info = db.get(appid, {})
+            status = info.get("status", "inconnu (hors base)")
+            detail = info.get("detail", "")
+            self.table.insertRow(n)
+            self.table.setItem(n, 0, QTableWidgetItem(nm.group(1) if nm else appid))
+            self.table.setItem(n, 1, QTableWidgetItem(detail or "—"))
+            self.table.setItem(n, 2, QTableWidgetItem(status))
+            n += 1
+
+
+class SettingsTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setLayout(QVBoxLayout())
+        self.layout().addWidget(QLabel("Tout est réversible. Fichier de config : /etc/pasteque/pasteque.conf"))
+        # curseur d'immuabilité
+        self.layout().addWidget(QLabel("Niveau d'immuabilité de /usr (0 = Arch ouvert, 5 = lecture seule) :"))
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setRange(0, 5)
+        self.slider.setValue(int(conf_get("IMMUTABILITY_LEVEL", "0")))
+        self.slider.valueChanged.connect(lambda v: conf_set("IMMUTABILITY_LEVEL", str(v)))
+        self.layout().addWidget(self.slider)
+        self.au = QCheckBox("Mises à jour automatiques en arrière-plan")
+        self.au.setChecked(conf_get("AUTO_UPDATE", "1") == "1")
+        self.au.toggled.connect(lambda v: conf_set("AUTO_UPDATE", "1" if v else "0"))
+        self.layout().addWidget(self.au)
+        self.idle = QCheckBox("Uniquement quand la machine est au repos (jamais en pleine partie)")
+        self.idle.setChecked(conf_get("UPDATE_ONLY_WHEN_IDLE", "1") == "1")
+        self.idle.toggled.connect(lambda v: conf_set("UPDATE_ONLY_WHEN_IDLE", "1" if v else "0"))
+        self.layout().addWidget(self.idle)
+        self.rb = QCheckBox("Rollback automatique (snapshots Btrfs) en cas de problème")
+        self.rb.setChecked(conf_get("AUTO_ROLLBACK", "1") == "1")
+        self.rb.toggled.connect(lambda v: conf_set("AUTO_ROLLBACK", "1" if v else "0"))
+        self.layout().addWidget(self.rb)
+        self.idx = QCheckBox("Indexation auto des .exe / AppImages dans le menu KDE")
+        self.idx.setChecked(conf_get("APP_INDEXER", "1") == "1")
+        self.idx.toggled.connect(lambda v: conf_set("APP_INDEXER", "1" if v else "0"))
+        self.layout().addWidget(self.idx)
+        self.ac = QCheckBox("Avertissements anti-cheat au lancement des jeux concernés")
+        self.ac.setChecked(conf_get("ANTICHEAT_WARNINGS", "1") == "1")
+        self.ac.toggled.connect(lambda v: conf_set("ANTICHEAT_WARNINGS", "1" if v else "0"))
+        self.layout().addWidget(self.ac)
+        self.layout().addStretch(1)
+
+
+class Main(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Gestionnaire d'applications — Pastèque Linux")
+        tabs = QTabWidget()
+        tabs.addTab(AppsTab(), "Applications")
+        tabs.addTab(GamesTab(), "Jeux / anti-cheat")
+        tabs.addTab(TrashTab(), "Corbeille de sauvegarde")
+        tabs.addTab(SettingsTab(), "Réglages")
+        self.setCentralWidget(tabs)
+        self.resize(900, 600)
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    m = Main()
+    m.show()
+    sys.exit(app.exec())

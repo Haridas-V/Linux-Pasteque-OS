@@ -1,0 +1,9 @@
+[Unit]
+Description=Pasteque - utilisateur live (session ISO uniquement)
+After=local-fs.target systemd-user-sessions.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pasteque-liveuser
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

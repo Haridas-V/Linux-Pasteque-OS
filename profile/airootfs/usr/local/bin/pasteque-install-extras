@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""Installe les extras embarqués (/opt/pasteque/extras) pour tous les utilisateurs :
+- Proton-GE -> ~/.steam/root/compatibilitytools.d/
+- Wine-GE   -> ~/.local/share/lutris/runners/wine/
+"""
+import glob
+import os
+import shutil
+import subprocess
+import tarfile
+
+EXTRAS = "/opt/pasteque/extras"
+
+
+def users_homes():
+    homes = [d for d in glob.glob("/home/*") if os.path.isdir(d)]
+    if os.path.isdir("/root"):
+        homes.append("/root")
+    return homes
+
+
+def extract(tarball, dest):
+    os.makedirs(dest, exist_ok=True)
+    with tarfile.open(tarball) as tf:
+        tf.extractall(dest, filter="fully_trusted")
+
+
+def main():
+    # Proton-GE
+    for tb in glob.glob(os.path.join(EXTRAS, "proton-ge", "*.tar.gz")) + \
+              glob.glob(os.path.join(EXTRAS, "proton-ge", "*.tar.xz")):
+        name = os.path.basename(tb).split(".tar")[0]
+        dest = os.path.join("/usr/share/pasteque/proton-ge", name)
+        if not os.path.exists(dest):
+            try:
+                extract(tb, dest)
+            except Exception as e:
+                print("pasteque-extras: proton-ge:", e)
+        for h in users_homes():
+            ct = os.path.join(h, ".steam/root/compatibilitytools.d", name)
+            os.makedirs(os.path.dirname(ct), exist_ok=True)
+            if not os.path.lexists(ct):
+                try:
+                    os.symlink(dest, ct)
+                except OSError:
+                    pass
+    # Wine-GE (Lutris)
+    for tb in glob.glob(os.path.join(EXTRAS, "wine-ge", "*.tar.xz")) + \
+              glob.glob(os.path.join(EXTRAS, "wine-ge", "*.tar.gz")):
+        name = os.path.basename(tb).split(".tar")[0]
+        dest = os.path.join("/usr/share/pasteque/wine-ge", name)
+        if not os.path.exists(dest):
+            try:
+                extract(tb, dest)
+            except Exception as e:
+                print("pasteque-extras: wine-ge:", e)
+        for h in users_homes():
+            rd = os.path.join(h, ".local/share/lutris/runners/wine", name)
+            os.makedirs(os.path.dirname(rd), exist_ok=True)
+            if not os.path.lexists(rd):
+                try:
+                    os.symlink(dest, rd)
+                except OSError:
+                    pass
+    # AppImages exécutables
+    for app in glob.glob(os.path.join(EXTRAS, "*", "*.AppImage")):
+        os.chmod(app, 0o755)
+
+
+if __name__ == "__main__":
+    main()

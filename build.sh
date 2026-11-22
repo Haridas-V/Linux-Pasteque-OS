@@ -13,6 +13,9 @@ OUT="${OUT:-$PWD/out}"
 
 mkdir -p "$OUT"
 
+# Extras AUR embarqués (Proton-GE, Wine-GE, Heroic, Teams) dans le profil
+python3 tools/fetch_extras.py profile/airootfs/opt/pasteque/extras || echo "[build] extras partiels (voir doc)"
+
 if command -v mkarchiso >/dev/null 2>&1; then
     exec sudo mkarchiso -v -w "$WORK" -o "$OUT" "$PROFILE"
 fi

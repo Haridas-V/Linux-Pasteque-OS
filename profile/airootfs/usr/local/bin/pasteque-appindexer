@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Indexe automatiquement les exécutables Windows (.exe), AppImages et programmes
+manuels (~/bin, ~/.local/bin, /opt) dans le menu KDE et krunner, avec icône.
+"""
+import glob
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+HOME = os.path.expanduser("~")
+APPS = os.path.join(HOME, ".local/share/applications")
+ICONS = os.path.join(HOME, ".local/share/icons/pasteque")
+SCAN_DIRS = [os.path.join(HOME, "bin"), os.path.join(HOME, ".local/bin"),
+             "/opt/pasteque/extras/heroic", "/opt/pasteque/extras/teams",
+             os.path.join(HOME, "Applications"), os.path.join(HOME, "Jeux")]
+EXE_DIRS = [os.path.join(HOME, "Jeux"), os.path.join(HOME, "Games"), HOME]
+
+
+def conf_enabled():
+    try:
+        for line in open("/etc/pasteque/pasteque.conf"):
+            if line.strip().startswith("APP_INDEXER="):
+                return line.split("=", 1)[1].strip() == "1"
+    except OSError:
+        pass
+    return True
+
+
+def icon_for_exe(exe, name):
+    """Extrait la première icône d'un .exe via wrestool -> PNG."""
+    os.makedirs(ICONS, exist_ok=True)
+    out = os.path.join(ICONS, name + ".png")
+    if os.path.exists(out):
+        return out
+    try:
+        r = subprocess.run(["wrestool", "--extract", "--type=14", "-o", out, exe],
+                           capture_output=True, timeout=30)
+        if r.returncode == 0 and os.path.exists(out):
+            subprocess.run(["icotool", "-c", "-i", out, "-o", out], capture_output=True)
+            return out
+    except Exception:
+        pass
+    return "application-x-executable"
+
+
+def write_desktop(name, exec_path, icon, comment=""):
+    os.makedirs(APPS, exist_ok=True)
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "-", name).lower()
+    path = os.path.join(APPS, "pasteque-" + safe + ".desktop")
+    with open(path, "w") as f:
+        f.write("[Desktop Entry]\nName=%s\nExec=%s\nIcon=%s\nType=Application\n"
+                "Categories=Game;Application;\nComment=%s\nTerminal=false\n" %
+                (name, exec_path, icon, comment or name))
+    os.chmod(path, 0o644)
+    return path
+
+
+def main():
+    if not conf_enabled():
+        return
+    # AppImages
+    for d in SCAN_DIRS:
+        for app in glob.glob(os.path.join(d, "*.AppImage")) + glob.glob(os.path.join(d, "*")):
+            if not (os.path.isfile(app) and os.access(app, os.X_OK)):
+                continue
+            if app.endswith(".AppImage") or app.endswith(".appimage"):
+                name = os.path.splitext(os.path.basename(app))[0]
+                write_desktop(name, '"%s" %%f' % app, os.path.splitext(app)[0] + ".png"
+                              if os.path.exists(os.path.splitext(app)[0] + ".png")
+                              else "application-x-executable", "AppImage")
+    # .exe (profondeur limitée dans les dossiers de jeux)
+    for d in EXE_DIRS:
+        if not os.path.isdir(d):
+            continue
+        for root, dirs, files in os.walk(d):
+            depth = root[len(d):].count(os.sep)
+            if depth >= 3:
+                dirs[:] = []
+            for fn in files:
+                if fn.lower().endswith(".exe") and os.access(os.path.join(root, fn), os.X_OK):
+                    full = os.path.join(root, fn)
+                    name = os.path.splitext(fn)[0]
+                    write_desktop(name, 'wine "%s"' % full, icon_for_exe(full, name), "Jeu Windows (Wine)")
+    # binaires perso
+    for d in (os.path.join(HOME, "bin"), os.path.join(HOME, ".local/bin")):
+        if not os.path.isdir(d):
+            continue
+        for b in os.listdir(d):
+            full = os.path.join(d, b)
+            if os.path.isfile(full) and os.access(full, os.X_OK) and "." not in b:
+                write_desktop(b, '"%s"' % full, "application-x-executable", "Programme personnel")
+    subprocess.run(["update-desktop-database", APPS], capture_output=True)
+
+
+if __name__ == "__main__":
+    main()

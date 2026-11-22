@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Pour chaque jeu Steam installé dont l'anti-cheat est incompatible Linux,
+injecte une option de lancement qui affiche un avertissement avant le jeu.
+Réversible : retirer l'entrée LaunchOptions restaure le comportement par défaut."""
+import glob
+import json
+import os
+import re
+import subprocess
+
+HOME = os.path.expanduser("~")
+DB = "/usr/share/pasteque/anticheat-db.json"
+STEAM = os.path.join(HOME, ".steam/steamapps")
+
+
+def conf_enabled():
+    try:
+        for line in open("/etc/pasteque/pasteque.conf"):
+            if line.strip().startswith("ANTICHEAT_WARNINGS="):
+                return line.split("=", 1)[1].strip() == "1"
+    except OSError:
+        pass
+    return True
+
+
+def notify(appid, info):
+    subprocess.run(["notify-send", "Pastèque — anti-cheat",
+                    "%s : %s\n%s" % (info.get("name", appid), info.get("status", "?"), info.get("detail", ""))],
+                   capture_output=True)
+
+
+def main():
+    if not conf_enabled():
+        return
+    try:
+        db = json.load(open(DB)).get("appids", {})
+    except OSError:
+        return
+    bad = {a: i for a, i in db.items() if i.get("status") == "KO"}
+    for acf in glob.glob(os.path.join(STEAM, "appmanifest_*.acf")):
+        txt = open(acf, encoding="utf-8", errors="replace").read()
+        m = re.search(r'"appid"\s*"(\d+)"', txt)
+        if not m or m.group(1) not in bad:
+            continue
+        appid = m.group(1)
+        info = bad[appid]
+        # option de lancement par défaut Steam (userdata/<uid>/config/localconfig.vdf)
+        for lc in glob.glob(os.path.join(HOME, ".steam/userdata/*/config/localconfig.vdf")):
+            content = open(lc).read()
+            key = '"LaunchOptions"'
+            warn = 'pasteque-anticheat-warn %s %%command%%' % appid
+            if warn in content:
+                continue
+            # insertion simple dans le bloc Software/Valve/Steam/CompatToolMapping area :
+            # on écrit via le helper dédié pour rester robuste
+            subprocess.run(["/usr/local/bin/pasteque-anticheat-setlaunch", appid, "set", lc],
+                           capture_output=True)
+
+
+if __name__ == "__main__":
+    main()

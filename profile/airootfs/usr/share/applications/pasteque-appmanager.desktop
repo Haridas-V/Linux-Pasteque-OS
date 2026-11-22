@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Gestionnaire d'applications Pastèque
+Comment=Désinstaller n'importe quelle app en 2 clics, corbeille de sauvegarde, réglages
+Exec=pasteque-appmanager
+Icon=system-software-install
+Type=Application
+Categories=System;Settings;

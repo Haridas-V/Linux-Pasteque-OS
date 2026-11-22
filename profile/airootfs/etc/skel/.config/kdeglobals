@@ -1,0 +1,10 @@
+[$Version]
+update_info= možné
+[KDE]
+LookAndFeelPackage=org.kde.breezedark.desktop
+ColorScheme=BreezeDark
+IconTheme=Papirus
+[WM]
+theme=__BREEZE_DARK__
+[General]
+font=Noto Sans,10,-1,5,50,0,0,0,0,0
