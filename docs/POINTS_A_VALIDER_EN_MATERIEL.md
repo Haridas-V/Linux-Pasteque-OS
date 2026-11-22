@@ -32,8 +32,15 @@ nécessite une vraie machine AMD.
 | 24 | Sécurité | `sudo -l` en user, `passwd -S root`, `systemctl status firewalld sshd` | sudo OK pour wheel, root verrouillé, firewalld actif, sshd absent/inactif |
 | 25 | Hors-ligne | Couper le réseau, installer depuis l'ISO, utiliser le système | Tout fonctionne sans réseau |
 
-## Tests réalisés en VM (référence)
+## Tests réalisés en VM (référence) — vérifiés ici, reproductibles
 
-Voir `tests/artifacts/` : boot de l'ISO en QEMU (TCG) avec log série et
-captures d'écran horodatées. Statut actuel : **BOOT_OK** sur la base ISO
-(atteinte de la cible multi-user/graphical, `pasteque login:`).
+Voir `tests/artifacts/` : boot de l'ISO en QEMU (TCG, sans KVM) avec log série
+et captures d'écran horodatées.
+
+| Run | ISO | Résultat | Preuve |
+|---|---|---|---|
+| `20261121-230859` | base (867 MiB) | **BOOT_OK** — cible multi-user/graphical atteinte, `pasteque login:` | serial.log + result.txt |
+| `20261122-031341` | complète (4926 MiB, KDE+gaming+Calamares) | **BOOT_OK** — SDDM démarré, service `pasteque-liveuser` OK, cible graphical atteinte | serial.log (`Started Simple Desktop Display Manager`) + result.txt |
+
+**Non testé en VM** (émulation TCG sans GPU) : la session Plasma Wayland elle-même
+après autologin SDDM → à valider en matériel (point 4 ci-dessus).

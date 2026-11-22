@@ -1,0 +1,15 @@
+#!/usr/bin/ash
+run_hook() {
+    local m i
+    for m in sr_mod cdrom ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3 \\
+        usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net; do
+        modprobe "$m" 2>/dev/null
+    done
+    # nœuds loop pour le montage de la squashfs (devtmpfs ne les crée pas tous)
+    [ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237 2>/dev/null
+    i=0
+    while [ $i -lt 16 ]; do
+        [ -e /dev/loop$i ] || mknod /dev/loop$i b 7 $i 2>/dev/null
+        i=$((i+1))
+    done
+}

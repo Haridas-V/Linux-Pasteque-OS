@@ -179,7 +179,7 @@ qt6-tools
 kpmcore
 libpwquality
 yaml-cpp
-polkit-qt6-1
+polkit-qt6
 appstream-qt
 boost
 kconfig
