@@ -14,6 +14,8 @@ jobs:
       - name: Dépendances Python
         run: python3 -m pip install zstandard pillow
       - name: Outillage de build (debs, sans root)
+        env:
+          PYTHONFAULTHANDLER: "1"
         run: python3 tools/fetch_deb_tools.py
       - name: Build ISO complet (rootless)
         run: python3 tools/build_sandbox.py all
