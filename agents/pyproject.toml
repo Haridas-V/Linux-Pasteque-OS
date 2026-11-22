@@ -1,0 +1,9 @@
+[project]
+name = "pasteque-agents"
+version = "0.1.0"
+description = "Sous-agents Mistral (Agents SDK) pour le projet Pastèque Linux"
+requires-python = ">=3.12"
+dependencies = ["mistralai-agents>=1.1.0"]
+
+[tool.mistralai.agents]
+entrypoint = "main:agent"

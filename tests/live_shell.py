@@ -153,6 +153,7 @@ class Report:
 
 
 def extract_iso(iso, ext):
+    subprocess.run(["chmod", "-R", "u+w", ext], capture_output=True)
     shutil.rmtree(ext, ignore_errors=True)
     os.makedirs(ext)
     subprocess.run([os.path.join(TROOT, "usr/bin/xorriso"), "-osirrox", "on", "-overwrite", "on",
@@ -169,8 +170,10 @@ def phase_structure(iso, rep):
                              capture_output=True, text=True, env=tool_env()).stdout
     for f in ["boot", "arch", "EFI"]:
         rep.check("iso-contains-%s" % f, f in listing, "")
-    sha = subprocess.run(["sha256sum", "-c", iso + ".sha256"], capture_output=True, text=True, cwd=os.path.dirname(iso))
-    rep.check("iso-sha256", sha.returncode == 0, sha.stdout.strip())
+    iso_abs = os.path.abspath(iso)
+    sha = subprocess.run(["sha256sum", "-c", os.path.basename(iso_abs) + ".sha256"],
+                         capture_output=True, text=True, cwd=os.path.dirname(iso_abs))
+    rep.check("iso-sha256", sha.returncode == 0, (sha.stdout + sha.stderr).strip())
 
 
 def phase_boot_loader(iso, rep, outdir, uefi):
@@ -184,7 +187,15 @@ def phase_boot_loader(iso, rep, outdir, uefi):
              "-serial", "unix:%s,server,nowait" % sock,
              "-qmp", "unix:%s,server,nowait" % qmps]
     if uefi:
-        extra = ["-bios", os.path.join(TROOT, "usr/share/OVMF/OVMF_CODE_4M.fd")] + extra
+        # OVMF en pflash (CODE + VARS) : boot UEFI pur
+        ovmf_code = os.path.join(TROOT, "usr/share/OVMF/OVMF_CODE_4M.fd")
+        ovmf_vars_src = os.path.join(TROOT, "usr/share/OVMF/OVMF_VARS_4M.fd")
+        if not os.path.exists(ovmf_vars_src):
+            ovmf_vars_src = os.path.join(TROOT, "usr/share/ovmf/OVMF_VARS.fd")
+        vars_copy = os.path.join(outdir, "ovmf-vars.fd")
+        shutil.copyfile(ovmf_vars_src, vars_copy)
+        extra = ["-drive", "if=pflash,format=raw,readonly=on,file=%s" % ovmf_code,
+                 "-drive", "if=pflash,format=raw,file=%s" % vars_copy] + extra
     proc = qemu_base(extra)
     ok_sock = wait_sock(sock, proc)
     rep.check("boot-%s-socket" % ("uefi" if uefi else "bios"), ok_sock, "")
@@ -255,13 +266,16 @@ def phase_live_and_install(iso, rep, outdir):
     ser.drain(2)
 
     setup = [
-        "modprobe sr_mod; modprobe cdrom; modprobe loop; modprobe squashfs; modprobe isofs; modprobe overlay; modprobe virtio_blk",
-        "mkdir -p /run/m /tmp/sfs /newroot /mnt/scratch",
-        "mount /dev/sr0 /run/m",
-        "mount /dev/vdb /mnt/scratch",
+        # le hook cleanup d'archiso a demonte /dev /proc /sys : on les recree
+        "mkdir -p /dev /proc /sys /run/m /tmp/sfs /newroot /mnt/scratch; true",
+        "mount -t devtmpfs devtmpfs /dev; mount -t proc proc /proc; mount -t sysfs sys /sys; true",
+        "modprobe ahci; modprobe virtio_blk; modprobe sr_mod; modprobe cdrom; modprobe loop; modprobe squashfs; modprobe isofs; modprobe overlay; sleep 2; ls /dev > /tmp/devlist.txt 2>&1; true",
+        "mount -o ro /dev/sr0 /run/m || mount -o ro LABEL=PASTEQUE /run/m || (cat /tmp/devlist.txt; false)",
+        "mount /dev/vdb /mnt/scratch || true",
         "mkdir -p /mnt/scratch/up /mnt/scratch/wrk",
         "mount -t squashfs -o loop,ro /run/m/arch/x86_64/airootfs.sfs /tmp/sfs",
         "mount -t overlay overlay -o lowerdir=/tmp/sfs,upperdir=/mnt/scratch/up,workdir=/mnt/scratch/wrk /newroot",
+        "mkdir -p /newroot/dev /newroot/proc /newroot/sys; true",
         "mount --bind /dev /newroot/dev",
         "mount --bind /proc /newroot/proc",
         "mount --bind /sys /newroot/sys",
@@ -276,7 +290,16 @@ def phase_live_and_install(iso, rep, outdir):
 
     # batterie de tests dans le chroot
     b64 = base64.b64encode(open(os.path.join(HERE, "live_tests.sh"), "rb").read()).decode()
-    ser.run("echo %s | base64 -d > /newroot/tmp/live_tests.sh" % b64, timeout=60)
+    ser.run("mkdir -p /newroot/tmp; : > /newroot/tmp/live_tests.b64", timeout=30)
+    for i in range(0, len(b64), 512):
+        chunk = b64[i:i + 512]
+        out, rc = ser.run("echo -n %s >> /newroot/tmp/live_tests.b64" % chunk, timeout=30)
+        if rc != 0:
+            rep.check("live-upload-script", False, "chunk %d rc=%d" % (i, rc))
+            proc.kill()
+            return
+    ser.run("base64 -d /newroot/tmp/live_tests.b64 > /newroot/tmp/live_tests.sh && chmod +x /newroot/tmp/live_tests.sh", timeout=30)
+    rep.check("live-upload-script", True, "")
     out, rc = ser.run("chroot /newroot /bin/bash /tmp/live_tests.sh", timeout=900)
     open(os.path.join(outdir, "live-tests.txt"), "w").write(out)
     for line in out.splitlines():

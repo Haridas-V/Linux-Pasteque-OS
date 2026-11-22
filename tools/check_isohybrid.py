@@ -49,6 +49,11 @@ def main():
     else:
         print("FAIL: aucune partition bootable dans le MBR -> Etcher ne verra pas d'image disque valide")
         ok = False
+    if any(p[2] == 0xEF for p in parts):
+        print("PASS: partition MBR 0xEF (ESP) presente -> boot UEFI depuis cle USB")
+    else:
+        print("FAIL: pas de partition 0xEF -> pas de boot UEFI depuis cle USB flashée")
+        ok = False
     # El Torito
     out = subprocess.run([os.path.join(TROOT, "usr/bin/xorriso"), "-indev", iso,
                           "-report_el_torito", "plain"], capture_output=True, text=True, env=tool_env()).stdout

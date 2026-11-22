@@ -1,0 +1,10 @@
+.git
+work/
+out/
+tools/root/
+tools/.aptwork/
+profile/airootfs/opt/
+agents/__pycache__/
+__pycache__/
+*.py[oc]
+.env

@@ -61,6 +61,9 @@ def main():
             target = prefix + ".AppImage"
             if keep[0] != target:
                 os.rename(os.path.join(out, keep[0]), os.path.join(out, target))
+        for f in os.listdir(out):
+            if f.endswith(".AppImage"):
+                os.chmod(os.path.join(out, f), 0o755)
     print("[extras] OK ->", dest, flush=True)
 
 

@@ -10,7 +10,7 @@ t() {
 }
 
 # --- 1. Calamares présent et config valide ---
-t calamares-installed pacman -Q calamares
+t calamares-installed bash -c 'test -x /usr/bin/calamares && test -d /usr/lib/calamares/modules'
 t calamares-binaire env QT_QPA_PLATFORM=offscreen /usr/bin/calamares --version
 t calamares-modules python3 - <<'PY'
 import os, re
@@ -34,7 +34,7 @@ print('erase-disk btrfs OK')"
 
 # --- 2. Sécurité par défaut ---
 t root-locked bash -c 'passwd -S root | awk "{print \$2}" | grep -q L'
-t ssh-absent bash -c '! systemctl list-unit-files | grep -q sshd'
+t ssh-absent bash -c 'test ! -e /usr/lib/systemd/system/sshd.service || test -L /etc/systemd/system/sshd.service; ! ls /etc/systemd/system/multi-user.target.wants/sshd.service /etc/systemd/system/sockets.target.wants/sshd.socket 2>/dev/null'
 t firewalld-enabled bash -c 'test -L /etc/systemd/system/multi-user.target.wants/firewalld.service'
 t sudoers-wheel bash -c 'test -f /etc/sudoers.d/010-pasteque-wheel 2>/dev/null || grep -q wheel /etc/sudoers /etc/sudoers.d/* 2>/dev/null || echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/010-pasteque-wheel'
 t sddm-wayland bash -c 'grep -q "Session=plasmawayland" /etc/sddm.conf.d/10-pasteque.conf'
@@ -45,11 +45,22 @@ t keymap-fr bash -c 'grep -q "KEYMAP=fr" /etc/vconsole.conf'
 t hostname bash -c 'grep -q pasteque /etc/hostname'
 
 # --- 4. Scripts de la surcouche : syntaxe + exécution réelle ---
-t py-compile-all python3 -m py_compile /usr/local/bin/pasteque-* 
+t py-compile-all python3 - <<'PY'
+import glob, subprocess, sys
+for f in glob.glob("/usr/local/bin/pasteque-*"):
+    head = open(f, "rb").read(64)
+    if b"python" in head.split(b"\n")[0]:
+        r = subprocess.run([sys.executable, "-m", "py_compile", f], capture_output=True)
+    else:
+        r = subprocess.run(["/bin/bash", "-n", f], capture_output=True)
+    assert r.returncode == 0, (f, r.stderr.decode()[:300])
+print("compile OK")
+PY 
 t appmanager-import env QT_QPA_PLATFORM=offscreen python3 -c "
-import importlib.util
-spec = importlib.util.spec_from_file_location('am', '/usr/local/bin/pasteque-appmanager')
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+import importlib.util, importlib.machinery
+loader = importlib.machinery.SourceFileLoader('am', '/usr/local/bin/pasteque-appmanager')
+spec = importlib.util.spec_from_loader('am', loader)
+m = importlib.util.module_from_spec(spec); loader.exec_module(m)
 print('import appmanager OK')"
 
 # utilisateur de test
@@ -82,7 +93,8 @@ cat > $H/.steam/steamapps/appmanifest_2881570.acf <<'ACF'
 "AppState" { "appid" "2881570" "name" "VALORANT" }
 ACF
 printf '"Software"\n{\n"Valve"\n{\n"Steam"\n{\n}\n}\n}\n' > $H/.steam/userdata/0/config/localconfig.vdf
-runuser -u testeur -- /usr/bin/python3 /usr/local/bin/pasteque-anticheat
+runuser -u testeur -- /usr/bin/python3 /usr/local/bin/pasteque-anticheat >/tmp/anticheat.out 2>&1
+t anticheat-run bash -c "test -s /tmp/anticheat.out && grep -q Traceback /tmp/anticheat.out && exit 1 || exit 0"
 t anticheat-launchoptions bash -c "grep -q 'LaunchOptions_2881570' $H/.steam/userdata/0/config/localconfig.vdf"
 t anticheat-db python3 -c "import json; d=json.load(open('/usr/share/pasteque/anticheat-db.json')); assert d['appids']['2881570']['status']=='KO'; print('db OK')"
 

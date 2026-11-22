@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 
 HOME = os.path.expanduser("~")
 DB = "/usr/share/pasteque/anticheat-db.json"
@@ -51,10 +52,12 @@ def main():
             warn = 'pasteque-anticheat-warn %s %%command%%' % appid
             if warn in content:
                 continue
-            # insertion simple dans le bloc Software/Valve/Steam/CompatToolMapping area :
             # on écrit via le helper dédié pour rester robuste
-            subprocess.run(["/usr/local/bin/pasteque-anticheat-setlaunch", appid, "set", lc],
-                           capture_output=True)
+            helper = os.path.join(os.path.dirname(os.path.realpath(__file__)), "pasteque-anticheat-setlaunch")
+            try:
+                subprocess.run([sys.executable, helper, appid, "set", lc], capture_output=True)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

@@ -149,6 +149,10 @@ def step_install():
     print("[build] installing %d packages ..." % len(pkgs), flush=True)
     chroot(["/usr/bin/pacman", "--config", "/etc/pacman.conf.build",
             "-Sy", "--noconfirm", "--needed", "--overwrite", "*"] + pkgs)
+    # SSH desactive par defaut : retirer openssh si present, sinon masquer sshd
+    chroot(["/bin/bash", "-c",
+            "pacman --config /etc/pacman.conf.build -Rns --noconfirm openssh 2>/dev/null; "
+            "if [ -e /usr/lib/systemd/system/sshd.service ]; then ln -sf /dev/null /etc/systemd/system/sshd.service; fi; true"])
     # overlay airootfs
     airootfs = os.path.join(PROFILE, "airootfs")
     for src, dirs, files in os.walk(airootfs):
@@ -185,13 +189,13 @@ AUR_PACKAGES = {
         "build_deps": ["base-devel", "cmake", "extra-cmake-modules", "ninja",
                        "qt6-base", "qt6-declarative", "qt6-svg", "qt6-tools",
                        "kpmcore", "libpwquality", "yaml-cpp", "polkit-qt6",
-                       "kcoreaddons", "kconfig", "ki18n", "boost"],
+                       "kcoreaddons", "kconfig", "ki18n", "boost", "python", "pybind11"],
         "cmake_opts": ["-DCMAKE_INSTALL_PREFIX=/usr", "-DCMAKE_BUILD_TYPE=Release",
-                       "-DWITH_PYTHONQT=OFF", "-DWITH_PYTHON=OFF",
+                       "-DWITH_PYTHONQT=OFF", "-DWITH_PYTHON=ON",
                        "-DWITH_TESTS=OFF", "-DCMAKE_INSTALL_LIBDIR=lib"],
         "depends": ["qt6-base", "qt6-declarative", "qt6-svg", "kpmcore", "libpwquality",
                     "yaml-cpp", "polkit-qt6", "kcoreaddons", "kconfig", "ki18n",
-                    "boost", "appstream-qt", "kio", "kparts", "solid"],
+                    "boost", "appstream-qt", "kio", "kparts", "solid", "python"],
         "desc": "Installeur graphique modulaire (Pastèque Linux)",
     },
 }
@@ -286,6 +290,46 @@ def step_initramfs():
     print("[build] initramfs OK:", os.path.getsize(img) // 1024 // 1024, "MiB", flush=True)
 
 
+def add_efi_mbr_partition(iso_path, efi_img):
+    """Ajoute une partition MBR type 0xEF (ESP) couvrant l'image El Torito EFI,
+    pour que la cle USB flashee avec Etcher boot aussi en UEFI (comme isohybrid --uefi)."""
+    import struct
+    with open(iso_path, "r+b") as f:
+        f.seek(17 * 2048)
+        brvd = f.read(2048)
+        if brvd[0] != 0:
+            raise RuntimeError("pas de Boot Record Volume Descriptor en secteur 17")
+        cat_lba = struct.unpack("<I", brvd[71:75])[0]
+        f.seek(cat_lba * 2048)
+        cat = f.read(2048)
+        lba = count = None
+        off = 32
+        while off + 32 <= len(cat):
+            hdr = cat[off]
+            if hdr in (0x90, 0x91):
+                platform = cat[off + 1]
+                n = cat[off + 2]
+                if platform == 0xEF:
+                    e = cat[off + 32: off + 64]
+                    count = struct.unpack("<H", e[6:8])[0]
+                    lba = struct.unpack("<I", e[8:12])[0]
+                off += 32 + 32 * n
+            else:
+                off += 32
+        if lba is None:
+            raise RuntimeError("pas d'entree El Torito EFI dans le catalogue")
+        if count in (0, 0xFFFF):
+            count = os.path.getsize(efi_img) // 2048
+        lba512, count512 = lba * 4, count * 4  # El Torito: secteurs 2048 o, MBR: 512 o
+        f.seek(0)
+        mbr = bytearray(f.read(512))
+        ent = struct.pack("<B3sB3sII", 0x00, b"\x00" * 3, 0xEF, b"\x00" * 3, lba512, count512)
+        mbr[446 + 16: 446 + 32] = ent
+        f.seek(0)
+        f.write(mbr)
+    print("[build] partition MBR 0xEF ajoutee: LBA %d, %d secteurs (512 o)" % (lba512, count512), flush=True)
+
+
 def step_iso():
     iso = os.path.join(WORK, "iso")
     sfs = os.path.join(iso, "arch/x86_64/airootfs.sfs")
@@ -324,7 +368,7 @@ def step_iso():
         if os.path.exists(sfs):
             os.remove(sfs)
         excl = ["-e", "boot", "dev", "proc", "sys", "tmp", "run", "mnt", "media",
-            "var/cache/pacman", "var/lib/pacman", "var/log", "root", "home",
+            "var/cache/pacman", "var/log", "root", "home",
             "etc/mtab"]
         run([os.path.join(TROOT, "usr/bin/mksquashfs"), ROOTFS, sfs,
              "-comp", "xz", "-b", "1M", "-Xbcj", "x86",
@@ -357,12 +401,17 @@ def step_iso():
     modules = ("part_msdos part_gpt iso9660 fat ext2 normal configfile linux echo "
                "search search_fs_file loopback gzio all_video test halt reboot "
                "memdisk tar ls cat help").split()
+    early = os.path.join(efiwork, "early.cfg")
+    with open(early, "w") as f:
+        f.write("search --set=root --file /boot/grub/grub.cfg\nset prefix=($root)/boot/grub\n")
     run([os.path.join(TROOT, "usr/bin/grub-mkimage"), "-O", "x86_64-efi",
          "-d", os.path.join(TROOT, "usr/lib/grub/x86_64-efi"),
          "-o", os.path.join(efiwork, "EFI/BOOT/BOOTX64.EFI"),
+         "-c", early,
          "-p", "(cd0)/boot/grub"] + modules)
     efi_img = os.path.join(iso, "boot/efi.img")
-    run(["dd", "if=/dev/zero", "of=" + efi_img, "bs=1M", "count=16"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # 64 MiB : un FAT32 valide exige >= 65525 clusters, sinon le pilote FAT d'EDK II (OVMF) refuse de monter l'image
+    run(["dd", "if=/dev/zero", "of=" + efi_img, "bs=1M", "count=64"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     run([os.path.join(TROOT, "usr/sbin/mkfs.vfat"), "-F", "32", "-n", ISO_LABEL + "EFI", efi_img])
     run([os.path.join(TROOT, "usr/bin/mmd"), "-i", efi_img, "::/EFI", "::/EFI/BOOT"])
     run([os.path.join(TROOT, "usr/bin/mcopy"), "-i", efi_img,
@@ -384,6 +433,7 @@ def step_iso():
          "-eltorito-alt-boot", "-e", "boot/efi.img", "-no-emul-boot",
          "-isohybrid-mbr", os.path.join(TROOT, "usr/lib/ISOLINUX/isohdpfx.bin"),
          iso])
+    add_efi_mbr_partition(iso_out, efi_img)
     import hashlib
     h = hashlib.sha256()
     with open(iso_out, "rb") as f:
