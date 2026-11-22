@@ -53,9 +53,8 @@ def main():
         return
     for h in glob.glob("/home/*"):
         vdf = os.path.join(h, ".steam/steamapps/libraryfolders.vdf")
-        if os.path.isdir(os.path.dirname(vdf)) or os.path.exists(os.path.join(h, ".steam")):
-            os.makedirs(os.path.dirname(vdf), exist_ok=True)
-            update_vdf(vdf, libs)
+        os.makedirs(os.path.dirname(vdf), exist_ok=True)
+        update_vdf(vdf, libs)
 
 
 if __name__ == "__main__":

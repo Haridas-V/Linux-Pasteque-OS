@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Fetch Debian .deb build tools WITHOUT root and extract them into tools/root/.
 
-Used in sandboxes/CI where apt install is impossible (no root). On a normal
-Debian/Arch host you do not need this: build.sh uses the system tools.
+Pure Python (no apt-get): reads the trixie Packages index, resolves the
+dependency closure of the requested packages, downloads the .debs from the
+mirror and extracts them (ar + tar, zstd via the `zstandard` module).
+Works identically on a dev machine, in the sandbox and on a CI runner.
 
 Usage: python3 tools/fetch_deb_tools.py [package ...]
 Env:   DEB_SUITE (default: trixie), DEB_MIRROR (default: https://deb.debian.org/debian)
@@ -10,9 +12,8 @@ Env:   DEB_SUITE (default: trixie), DEB_MIRROR (default: https://deb.debian.org/
 import io
 import lzma
 import os
+import re
 import shutil
-import subprocess
-import sys
 import tarfile
 import urllib.request
 
@@ -27,70 +28,101 @@ DEFAULT_PACKAGES = [
     # ISO assembly
     "xorriso", "grub-pc-bin", "grub-efi-amd64-bin", "grub-common", "grub2-common",
     "mtools", "dosfstools", "squashfs-tools", "cpio", "rsync",
-    "syslinux-common", "syslinux", "isolinux",
+    "syslinux-common", "syslinux", "isolinux", "syslinux-utils",
     # compression libs used by the tools above
     "zstd", "xz-utils", "libzstd1", "liblzma5", "bzip2",
     # VM tests
     "qemu-system-x86", "qemu-system-common", "qemu-system-data", "qemu-utils",
+    "ovmf",
 ]
 
 
 def http_get(url, dest=None):
     req = urllib.request.Request(url, headers={"User-Agent": "pasteque-build/1.0"})
-    with urllib.request.urlopen(req, timeout=120) as r:
+    with urllib.request.urlopen(req, timeout=300) as r:
         data = r.read()
     if dest:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
         with open(dest, "wb") as f:
             f.write(data)
     return data
 
 
-def seed_apt_lists():
-    lists = os.path.join(WORK, "lists")
-    os.makedirs(os.path.join(lists, "partial"), exist_ok=True)
-    os.makedirs(os.path.join(WORK, "archives", "partial"), exist_ok=True)
-    prefix = "deb.debian.org_debian_dists_%s_" % SUITE
-    pkg_xz = os.path.join(lists, prefix + "main_binary-amd64_Packages.xz")
-    pkg_file = os.path.join(lists, prefix + "main_binary-amd64_Packages")
+def load_index():
+    """Return {package: {"Filename":..., "Depends": [...], "Provides": [...]}}."""
+    os.makedirs(WORK, exist_ok=True)
+    pkg_file = os.path.join(WORK, "Packages")
     if not os.path.exists(pkg_file):
         url = "%s/dists/%s/main/binary-amd64/Packages.xz" % (MIRROR, SUITE)
-        print("[deb] downloading package index", url, flush=True)
-        http_get(url, pkg_xz)
-        with lzma.open(pkg_xz) as f, open(pkg_file, "wb") as o:
-            shutil.copyfileobj(f, o)
-    inrel = os.path.join(lists, prefix + "InRelease")
-    if not os.path.exists(inrel):
-        try:
-            http_get("%s/dists/%s/InRelease" % (MIRROR, SUITE), inrel)
-        except Exception as e:
-            print("[deb] InRelease unavailable (%s), continuing with trusted=yes" % e, flush=True)
-    src = os.path.join(WORK, "sources.list")
-    with open(src, "w") as f:
-        f.write("deb [trusted=yes] %s %s main\n" % (MIRROR, SUITE))
-    return src
+        print("[deb] index", url, flush=True)
+        raw = lzma.decompress(http_get(url))
+        with open(pkg_file, "wb") as f:
+            f.write(raw)
+    pkgs = {}
+    cur = {}
+    last_key = None
+    for line in open(pkg_file, encoding="utf-8", errors="replace"):
+        line = line.rstrip("\n")
+        if not line:
+            if cur.get("Package"):
+                pkgs[cur["Package"]] = cur
+            cur = {}
+            last_key = None
+            continue
+        if line.startswith((" ", "\t")) and last_key:
+            cur[last_key] += "\n" + line.strip()
+            continue
+        if ":" in line:
+            k, v = line.split(":", 1)
+            cur[k] = v.strip()
+            last_key = k
+    if cur.get("Package"):
+        pkgs[cur["Package"]] = cur
+    return pkgs
 
 
-def apt_download(packages):
-    src = seed_apt_lists()
-    status = os.path.join(WORK, "status")
-    if not os.path.exists(status):
-        open(status, "w").close()
-    cmd = [
-        "apt-get",
-        "-o", "Dir::Etc::sourcelist=%s" % src,
-        "-o", "Dir::Etc::sourceparts=/dev/null",
-        "-o", "Dir::State::Lists=%s" % os.path.join(WORK, "lists"),
-        "-o", "Dir::State::status=%s" % status,
-        "-o", "Debug::NoLocking=1",
-        "-o", "Dir::Cache=%s" % WORK,
-        "-o", "APT::Get::ListCleanup=0",
-        "-o", "Acquire::AllowInsecureRepositories=1",
-        "-o", "APT::Get::AllowUnauthenticated=1",
-        "-d", "-y", "--no-install-recommends",
-        "install",
-    ] + packages
-    print("[deb] apt-get download:", " ".join(packages), flush=True)
-    subprocess.run(cmd, check=True)
+def dep_names(dep_field):
+    """'a (>= 1) | b, c:any' -> ['a', 'c'] (première alternative résolvable plus tard)."""
+    out = []
+    for alt_group in (dep_field or "").split(","):
+        alts = [a.strip() for a in alt_group.split("|")]
+        alts = [re.split(r"\s*\(", a)[0].strip() for a in alts]
+        alts = [a.split(":")[0] for a in alts if a]
+        if alts:
+            out.append(alts)
+    return out
+
+
+def resolve(pkgs, targets):
+    provides = {}
+    for name, info in pkgs.items():
+        for p in re.findall(r"([^\s,()]+)", info.get("Provides", "")):
+            provides.setdefault(p.split(":")[0], name)
+    seen = set()
+    order = []
+
+    def visit(name):
+        if name in seen:
+            return
+        real = name if name in pkgs else provides.get(name)
+        if not real:
+            print("[deb] WARN: introuvable:", name, flush=True)
+            return
+        seen.add(name)
+        info = pkgs[real]
+        if real not in order:
+            pass
+        for group in dep_names(info.get("Depends", "")):
+            for alt in group:
+                if alt in pkgs or alt in provides:
+                    visit(alt)
+                    break
+        if real not in order:
+            order.append(real)
+
+    for t in targets:
+        visit(t)
+    return [pkgs[p] for p in order]
 
 
 def ar_members(data):
@@ -99,8 +131,7 @@ def ar_members(data):
     while off + 60 <= len(data):
         name = data[off:off + 16].decode("ascii", "replace").rstrip()
         size = int(data[off + 48:off + 58].decode().strip())
-        body = data[off + 60:off + 60 + size]
-        yield name.rstrip("/"), body
+        yield name.rstrip("/"), data[off + 60:off + 60 + size]
         off += 60 + size + (size % 2)
 
 
@@ -111,7 +142,7 @@ def extract_deb(path, dest):
     for name, body in ar_members(data):
         if name.startswith("data.tar"):
             if name.endswith(".zst"):
-                raw = zstandard.ZstdDecompressor().decompress(body, max_output_size=512 * 1024 * 1024)
+                raw = zstandard.ZstdDecompressor().decompress(body, max_output_size=1024 * 1024 * 1024)
                 tf = tarfile.open(fileobj=io.BytesIO(raw), mode="r:")
             elif name.endswith(".xz"):
                 tf = tarfile.open(fileobj=io.BytesIO(lzma.decompress(body)), mode="r:")
@@ -123,17 +154,31 @@ def extract_deb(path, dest):
 
 
 def main():
+    import sys
     packages = sys.argv[1:] or DEFAULT_PACKAGES
     os.makedirs(ROOT, exist_ok=True)
-    apt_download(packages)
-    debs = sorted(
-        os.path.join(WORK, "archives", f)
-        for f in os.listdir(os.path.join(WORK, "archives"))
-        if f.endswith(".deb")
-    )
-    print("[deb] extracting %d debs into %s" % (len(debs), ROOT), flush=True)
-    for d in debs:
-        extract_deb(d, ROOT)
+    pkgs = load_index()
+    resolved = resolve(pkgs, packages)
+    dl = os.path.join(WORK, "debs")
+    os.makedirs(dl, exist_ok=True)
+    print("[deb] %d paquets à télécharger" % len(resolved), flush=True)
+    for info in resolved:
+        fn = info["Filename"]
+        dest = os.path.join(dl, os.path.basename(fn))
+        if not os.path.exists(dest):
+            http_get("%s/%s" % (MIRROR, fn), dest)
+    print("[deb] extraction dans", ROOT, flush=True)
+    for info in resolved:
+        extract_deb(os.path.join(dl, os.path.basename(info["Filename"])), ROOT)
+    # QEMU a besoin des BIOS SeaBIOS dans son datadir : copie depuis le paquet seabios
+    seabios = os.path.join(ROOT, "usr/share/seabios")
+    qemudata = os.path.join(ROOT, "usr/share/qemu")
+    if os.path.isdir(seabios) and os.path.isdir(qemudata):
+        for f in os.listdir(seabios):
+            if f.endswith(".bin") or f.endswith(".rom"):
+                dst = os.path.join(qemudata, f)
+                if not os.path.exists(dst):
+                    shutil.copy2(os.path.join(seabios, f), dst)
     print("[deb] OK. Tools root:", ROOT, flush=True)
 
 

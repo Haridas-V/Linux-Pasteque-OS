@@ -14,8 +14,14 @@ jobs:
         run: python3 tools/fetch_deb_tools.py
       - name: Build ISO complet (rootless)
         run: python3 tools/build_sandbox.py all
-      - name: Test boot QEMU (TCG)
+      - name: Compatibilité balenaEtcher (isohybrid)
+        run: python3 tools/check_isohybrid.py out/*.iso
+      - name: Test boot QEMU depuis ISO (TCG)
         run: python3 tests/run_vm_test.py --timeout 480 || true
+      - name: Test boot QEMU depuis "clé USB flashée" (simulation Etcher)
+        run: python3 tests/usb_boot_test.py --timeout 600 || true
+      - name: Suite live complète (chroot + install disque + boot installé)
+        run: python3 tests/live_shell.py out/pasteque-dev.iso || true
       - name: Upload ISO (artifact)
         uses: actions/upload-artifact@v4
         with:

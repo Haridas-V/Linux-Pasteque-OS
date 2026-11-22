@@ -25,6 +25,22 @@ Sans root (sandbox / CI), le même résultat est produit par :
 python3 tools/build_sandbox.py all   # -> out/pasteque-*.iso + .sha256
 ```
 
+## Flash USB avec balenaEtcher
+
+L'ISO est **hybride (isohybrid MBR + El Torito BIOS/UEFI)** : balenaEtcher la
+reconnaît nativement comme image disque.
+
+1. Télécharger `pasteque-*.iso` (build local `out/` ou artifact CI de la PR).
+2. Dans balenaEtcher : **Flash from file** → sélectionner l'ISO → choisir la clé USB → **Flash**.
+   Aucune option spéciale requise (pas besoin du mode « Unsafe » : l'ISO a une vraie table de partition MBR).
+3. Vérifier l'empreinte avant flash : `sha256sum -c pasteque-*.iso.sha256`.
+4. Booter la clé USB (UEFI ou BIOS, les deux marchent).
+
+Compatibilité vérifiée automatiquement : `python3 tools/check_isohybrid.py out/pasteque-*.iso`
+(signature MBR 0x55AA, partition bootable, El Torito BIOS+UEFI) et
+`python3 tests/usb_boot_test.py` (simule le flash Etcher : copie brute de l'ISO
+sur disque + boot QEMU depuis ce disque via le MBR).
+
 ## Tests en VM (QEMU, sans KVM accepté)
 
 ```bash

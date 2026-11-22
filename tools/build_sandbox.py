@@ -32,7 +32,7 @@ ISO_LABEL = os.environ.get("ISO_LABEL", "PASTEQUE")
 ISO_NAME = os.environ.get("ISO_NAME", "pasteque")
 EXTRA_CMDLINE = os.environ.get("EXTRA_CMDLINE", "")
 
-CMDLINE = "archisolabel=%s archisobasedir=arch %s" % (ISO_LABEL, EXTRA_CMDLINE)
+CMDLINE = "archisolabel=%s archisobasedir=arch console=ttyS0,115200 %s" % (ISO_LABEL, EXTRA_CMDLINE)
 
 MKINITCPIO_CONF = """MODULES=()
 BINARIES=()
@@ -321,6 +321,8 @@ def step_iso():
             print("[iso] dbus helper:", e, flush=True)
     # squashfs de l'airootfs (réutilisé si déjà présent et FORCE_SQUASHFS unset)
     if not os.path.exists(sfs) or os.environ.get("FORCE_SQUASHFS"):
+        if os.path.exists(sfs):
+            os.remove(sfs)
         excl = ["-e", "boot", "dev", "proc", "sys", "tmp", "run", "mnt", "media",
             "var/cache/pacman", "var/lib/pacman", "var/log", "root", "home",
             "etc/mtab"]

@@ -20,7 +20,23 @@ locale-gen 2>/dev/null || true
 # services Pastèque
 systemctl enable pasteque-liveuser pasteque-extras pasteque-steamlibs pasteque-bootcheck 2>/dev/null || true
 systemctl enable pasteque-update.timer pasteque-steamlibs.timer 2>/dev/null || true
-# initramfs de la cible
+# initramfs de la cible : preset "installé" (hooks standard + pasteque_mods),
+# pas le preset archiso de la live
+cat > /etc/mkinitcpio.conf <<'EOC'
+MODULES=()
+BINARIES=()
+FILES=()
+HOOKS=(base udev modconf block pasteque_mods keyboard filesystems)
+COMPRESSION="xz"
+EOC
+rm -f /etc/mkinitcpio.d/archiso.preset
+cat > /etc/mkinitcpio.d/linux.preset <<'EOC'
+ALL_config='/etc/mkinitcpio.conf'
+ALL_kver='/boot/vmlinuz-linux'
+PRESETS=('default')
+default_image="/boot/initramfs-linux.img"
+default_kver="/boot/vmlinuz-linux"
+EOC
 mkinitcpio -P 2>/dev/null || true
 # installer les extras pour l'utilisateur créé
 /usr/bin/python3 /usr/local/bin/pasteque-install-extras 2>/dev/null || true
