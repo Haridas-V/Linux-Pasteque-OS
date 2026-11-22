@@ -8,8 +8,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Dépendances Python
-        run: pip install zstandard pillow
+        run: python3 -m pip install zstandard pillow
       - name: Outillage de build (debs, sans root)
         run: python3 tools/fetch_deb_tools.py
       - name: Build ISO complet (rootless)
