@@ -45,6 +45,8 @@ et captures d'écran horodatées.
 | `20261122-0952xx` (manuel) | 4976 MiB | **BOOT UEFI depuis clé USB flashée (dd brut, comme Etcher)** OK — partition MBR 0xEF → grub → noyau → systemd | `/tmp/uefi-usb3.log` ; check `tools/check_isohybrid.py` = ETCHER_COMPATIBLE (MBR 0x55AA, part. bootable 0x17, part. 0xEF) |
 | `20261122-123324` | complète (5005 MiB, db pacman embarquée) | **Batterie live 30 PASS / 0 FAIL** en chroot (Calamares 60 modules, sécurité, FR, surcouche anti-frustration : appindexer, corbeille, steamlibs, anti-cheat, extras, unités systemd, btrfs-progs, grub) | `tests/artifacts/20261122-123324-liveonly/live-tests.txt` |
 | `20261122-082724` | 4926 MiB | **USB_BOOT_OK** — copie brute de l'ISO sur disque + boot MBR isohybrid (simulation flash Etcher, BIOS) | `tests/artifacts/20261122-082724/` |
+| `20261122-182328` | 5005 MiB | **USB_BOOT_OK + USB_UEFI_BOOT_OK** — copie brute (flash Etcher) puis boot BIOS (MBR isohybrid) **et** UEFI (OVMF, partition MBR 0xEF) depuis le disque flashé | `tests/artifacts/20261122-182328/result.txt`, `serial-usb-bios.log`, `serial-usb-uefi.log` |
+| `20261122-174330-liveonly` | 5005 MiB | **FAILS=0** — batterie live 30/30 + install sur disque virtuel btrfs (mkinitcpio -P, grub-install i386-pc) + **boot du système installé depuis /dev/vda jusqu'au login** + session sudo | `tests/artifacts/20261122-174330-liveonly/report.md`, `serial-installed.log` |
 
 **Non testé en VM** (émulation TCG sans GPU) : la session Plasma Wayland elle-même
 après autologin SDDM → à valider en matériel (point 4 ci-dessus).

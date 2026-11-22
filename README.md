@@ -47,9 +47,29 @@ sur disque + boot QEMU depuis ce disque via le MBR).
 python3 tests/run_vm_test.py         # boot de l'ISO, log série + captures horodatées
 ```
 
-Résultats dans `tests/artifacts/<horodatage>/`. Voir le dernier run : `BOOT_OK`
-(base ISO) — la suite (SDDM, Calamares, système installé) est testée de la même
-manière quand la VM est disponible.
+Résultats dans `tests/artifacts/<horodatage>/`. Dernier run complet (ISO 5005 Mio) :
+
+```bash
+python3 tools/check_isohybrid.py out/pasteque-dev.iso     # ETCHER_COMPATIBLE (MBR 0x55AA, part. 0x17 bootable + part. 0xEF)
+python3 tests/live_shell.py out/pasteque-dev.iso           # structure + boot BIOS CD + boot UEFI CD (OVMF) + batterie live 30/30 + install disque + boot installé
+python3 tests/usb_boot_test.py --uefi out/pasteque-dev.iso # flash Etcher simulé : boot BIOS + UEFI depuis la clé
+```
+
+Résultats vérifiés : `boot-bios-chargeur` PASS, `boot-uefi-chargeur` PASS,
+batterie live **30 PASS / 0 FAIL**, `install-finalize-grub` PASS,
+`boot-disque-installe` PASS (login depuis /dev/vda), `USB_BOOT_OK` +
+`USB_UEFI_BOOT_OK` — voir `tests/artifacts/20261122-174330-liveonly/` et
+`tests/artifacts/20261122-182328/`, et le tableau dans
+[docs/POINTS_A_VALIDER_EN_MATERIEL.md](docs/POINTS_A_VALIDER_EN_MATERIEL.md).
+
+## Sous-agents (Mistral Agents SDK)
+
+Un orchestrateur + 4 sous-agents dans [`agents/`](agents/) (build ISO, tests VM,
+docs, revue de PR). Déployé comme workflow managé Mistral :
+`pasteque-orchestrateur` (voir
+[Studio](https://console.mistral.ai/build/workflows/deployments/pasteque-orchestrateur)),
+build depuis `agents/Dockerfile` sur la branche `vibe/pasteque-os-68736a`.
+Test local sans clé API : `cd agents && python3 test_local.py`.
 
 ## Arborescence
 
