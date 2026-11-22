@@ -13,6 +13,10 @@ jobs:
           python-version: "3.12"
       - name: Dépendances Python
         run: python3 -m pip install zstandard pillow
+      - name: Sonde imports (diagnostic)
+        env:
+          PYTHONFAULTHANDLER: "1"
+        run: python3 -c "import importlib; [importlib.import_module(m) for m in ['io','lzma','os','re','shutil','tarfile','urllib.request','ssl','hashlib','zlib']]; print('imports OK')"
       - name: Outillage de build (debs, sans root)
         env:
           PYTHONFAULTHANDLER: "1"
