@@ -173,7 +173,8 @@ libnotify
 btrfs-progs
 grub
 efibootmgr
-os-prober        # dual-boot : detecte les autres OS (option "Installer a cote" de Calamares + menu GRUB)
+os-prober        # dual-boot
+mokutil          # enrôlement clé MOK (Secure Boot) : pasteque-secureboot : detecte les autres OS (option "Installer a cote" de Calamares + menu GRUB)
 cryptsetup       # chiffrement LUKS (case a cocher dans Calamares)
 kdeconnect-kde   # telephone <-> PC (notifications, transfert de fichiers, telecommande)
 blueman          # Bluetooth graphique (manettes, casque)

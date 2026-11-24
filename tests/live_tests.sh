@@ -115,6 +115,7 @@ t polkit-update test -f /etc/polkit-1/rules.d/49-pasteque.rules
 t kernel-lts bash -c "ls -d /usr/lib/modules/*lts* >/dev/null 2>&1"
 t dualboot-luks bash -c "command -v os-prober && command -v cryptsetup && grep -q 'enableLuksAutomatedPartitioning: true' /etc/calamares/modules/partition.conf && grep -q 'GRUB_DISABLE_OS_PROBER=false' /etc/default/grub"
 t util-apps bash -c "pacman -Q kdeconnect-kde blueman flameshot gnome-disk-utility >/dev/null 2>&1"
+t secureboot-mok test -s /usr/share/pasteque/mok/Pasteque.der -a -x /usr/local/bin/pasteque-secureboot -a -x /usr/bin/mokutil
 t anticheat-fortnite python3 -c "import json; d=json.load(open('/usr/share/pasteque/anticheat-db.json')); assert d['games']['fortnite']['status']=='OK'; print('fortnite OK')"
 
 # 4f. config centrale + unités systemd

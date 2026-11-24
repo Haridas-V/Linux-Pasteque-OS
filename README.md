@@ -97,6 +97,9 @@ docs/                     # ARCHITECTURE.md, MAINTENANCE.md, POINTS_A_VALIDER_EN
 - **Chiffrement LUKS** : case à cocher dans l'installateur (hook `encrypt` + GRUB cryptodisk auto).
 - **KDE Connect** (téléphone↔PC), **Blueman** (Bluetooth/manettes), **Flameshot** (captures), **Disques** (GUI).
 - ISO nommée `pasteque-1.0.iso`.
+- **Signature** : SHA256 toujours + signature GPG `.asc` (voir `tools/sign_iso.sh` / `tools/verify_iso.sh`).
+- **Secure Boot** : chaîne shim-Microsoft + clé MOK Pastèque embarquée (enrôlement 1 fois :
+  `sudo mokutil --import /usr/share/pasteque/mok/Pasteque.der`) — guide `docs/SECURE_BOOT.md`.
 - Tout le reste : voir ci-dessous.
 
 ## Jeux en ligne (Fortnite, Apex, …)

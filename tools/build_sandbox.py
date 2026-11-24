@@ -437,6 +437,19 @@ def step_iso():
          "-o", os.path.join(efiwork, "EFI/BOOT/BOOTX64.EFI"),
          "-c", early,
          "-p", "(cd0)/boot/grub"] + modules)
+    # Secure Boot : si le shim MS-signe est present, BOOTX64.EFI = shim (1er etage),
+    # grub signe devient grubx64.efi (2e etage verifie contre MOK), mmx64.efi = MokManager
+    shim = os.path.join(WORK, "shim", "shimx64.efi")
+    mokmgr = os.path.join(WORK, "shim", "mmx64.efi")
+    have_shim = os.path.exists(shim) and os.path.exists(os.path.join(WORK, "efiwork", "EFI/BOOT/grubx64.efi"))
+    if have_shim:
+        shutil.copy2(os.path.join(WORK, "efiwork", "EFI/BOOT/grubx64.efi"),
+                     os.path.join(efiwork, "EFI/BOOT/grubx64.efi"))
+        shutil.copy2(shim, os.path.join(efiwork, "EFI/BOOT/BOOTX64.EFI"))
+        shutil.copy2(mokmgr, os.path.join(efiwork, "EFI/BOOT/mmx64.efi"))
+        print("[build] Secure Boot: shim MS + grubx64.efi signe + MokManager embarques", flush=True)
+    else:
+        print("[build] shim absent ou grub non signe -> BOOTX64.EFI = grub direct (SB off requis)", flush=True)
     efi_img = os.path.join(iso, "boot/efi.img")
     # 1024 MiB : un FAT32 (noyau + initrd principal ET LTS embarques) valide exige >= 65525 clusters, sinon le pilote FAT d'EDK II refuse de monter l'image.
     # On y embarque kernel + initrd + grub.cfg : au boot UEFI depuis une cle USB flashee (Etcher/dd),
@@ -448,6 +461,10 @@ def step_iso():
          "::/boot", "::/boot/x86_64", "::/boot/grub"])
     run([os.path.join(TROOT, "usr/bin/mcopy"), "-i", efi_img,
          os.path.join(efiwork, "EFI/BOOT/BOOTX64.EFI"), "::/EFI/BOOT/BOOTX64.EFI"])
+    for extra in ["grubx64.efi", "mmx64.efi"]:
+        ep = os.path.join(efiwork, "EFI/BOOT", extra)
+        if os.path.exists(ep):
+            run([os.path.join(TROOT, "usr/bin/mcopy"), "-i", efi_img, ep, "::/EFI/BOOT/" + extra])
     for src, dst in [
         (os.path.join(iso, "boot/x86_64/vmlinuz-linux"), "::/boot/x86_64/vmlinuz-linux"),
         (os.path.join(iso, "boot/x86_64/initramfs-linux.img"), "::/boot/x86_64/initramfs-linux.img"),
@@ -485,6 +502,12 @@ def step_iso():
     print("[build] ISO OK:", iso_out, os.path.getsize(iso_out) // 1024 // 1024, "MiB", flush=True)
 
 
+def step_secureboot():
+    """Secure Boot : shim signe Microsoft + grub/noyaux/modules signes (cle MOK embarquee)."""
+    run([sys.executable, os.path.join(TOOLS, "fetch_shim.py")])
+    run([sys.executable, os.path.join(TOOLS, "sb_sign.py")])
+
+
 STEPS = {
     "tools": step_tools,
     "bootstrap": step_bootstrap,
@@ -493,7 +516,8 @@ STEPS = {
     "aur": step_aur,
     "initramfs": step_initramfs,
     "iso": step_iso,
-    "all": lambda: [step_tools(), step_bootstrap(), step_install(), step_aur(), step_extras(), step_initramfs(), step_iso()],
+    "secureboot": step_secureboot,
+    "all": lambda: [step_tools(), step_bootstrap(), step_install(), step_aur(), step_extras(), step_initramfs(), step_secureboot(), step_iso()],
 }
 
 if __name__ == "__main__":

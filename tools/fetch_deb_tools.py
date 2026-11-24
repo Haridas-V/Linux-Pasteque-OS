@@ -29,6 +29,8 @@ DEFAULT_PACKAGES = [
     "xorriso", "grub-pc-bin", "grub-efi-amd64-bin", "grub-common", "grub2-common",
     "mtools", "dosfstools", "squashfs-tools", "cpio", "rsync",
     "syslinux-common", "syslinux", "isolinux", "syslinux-utils",
+    # Secure Boot : signature EFI (sbsign) + CMS modules + openssl
+    "sbsigntools", "openssl", "python3-cryptography",
     # compression libs used by the tools above
     "zstd", "xz-utils", "libzstd1", "liblzma5", "bzip2",
     # VM tests

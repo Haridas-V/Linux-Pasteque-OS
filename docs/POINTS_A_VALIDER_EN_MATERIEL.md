@@ -66,3 +66,6 @@ après autologin SDDM → à valider en matériel (point 4 ci-dessus).
 - [ ] **LUKS** : cocher « Chiffrer le système » → boot demande la passphrase (GRUB cryptodisk), système démarre.
 - [ ] **KDE Connect** : appairage téléphone Android/iOS.
 - [ ] **Blueman** : appairage manette Bluetooth/PS5/DualSense.
+
+- [ ] **Secure Boot** : activer SB dans le BIOS, enrôler la clé MOK (`pasteque-secureboot`), booter la clé → doit passer (sinon « Secure Boot violation » = clé non enrôlée).
+- [ ] **Signature ISO** : `tools/verify_iso.sh pasteque-1.0.iso <empreinte>` → OK.

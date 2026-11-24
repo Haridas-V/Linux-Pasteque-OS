@@ -13,7 +13,9 @@ jobs:
       # dont les libs correspondent à celles des debs extraits dans tools/root.
       - name: Build ISO + tests VM (conteneur trixie privilégié)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # evite le rate limit 403 de l'API GitHub (extras Proton-GE/Heroic/Teams)
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PASTEQUE_GPG_KEY: ${{ secrets.PASTEQUE_GPG_KEY }}       # cle privee ASCII (optionnel)
+          PASTEQUE_GPG_PASSPHRASE: ${{ secrets.PASTEQUE_GPG_PASSPHRASE }}   # evite le rate limit 403 de l'API GitHub (extras Proton-GE/Heroic/Teams)
         run: |
           docker run --rm --privileged -e GITHUB_TOKEN -v "$PWD:/src" -w /src debian:trixie-slim bash -c '
             set -e
@@ -27,6 +29,13 @@ jobs:
             python3 tests/run_vm_test.py --timeout 480
             python3 tests/usb_boot_test.py --uefi --timeout 600
             python3 tests/live_shell.py "$(ls out/*.iso | head -1)"
+            # signature GPG de l'ISO si la cle secrete est configuree (PASTEQUE_GPG_KEY + PASTEQUE_GPG_PASSPHRASE)
+            ISO=$(ls out/*.iso | head -1)
+            if [ -n "${PASTEQUE_GPG_KEY:-}" ]; then
+              bash tools/sign_iso.sh "$ISO"
+            else
+              sha256sum "$ISO" > "$ISO.sha256"; echo "[sign] pas de cle GPG secret -> sha256 seul"
+            fi
           '
       - name: Upload ISO (artifact)
         uses: actions/upload-artifact@v6
@@ -35,4 +44,5 @@ jobs:
           path: |
             out/*.iso
             out/*.sha256
+            out/*.asc
             tests/artifacts/*/result.txt
