@@ -12,8 +12,10 @@ jobs:
       # sur les runners hébergés : on tourne tout dans un conteneur trixie privilégié,
       # dont les libs correspondent à celles des debs extraits dans tools/root.
       - name: Build ISO + tests VM (conteneur trixie privilégié)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # evite le rate limit 403 de l'API GitHub (extras Proton-GE/Heroic/Teams)
         run: |
-          docker run --rm --privileged -v "$PWD:/src" -w /src debian:trixie-slim bash -c '
+          docker run --rm --privileged -e GITHUB_TOKEN -v "$PWD:/src" -w /src debian:trixie-slim bash -c '
             set -e
             export DEBIAN_FRONTEND=noninteractive
             apt-get update

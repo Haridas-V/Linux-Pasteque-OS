@@ -50,3 +50,8 @@ et captures d'écran horodatées.
 
 **Non testé en VM** (émulation TCG sans GPU) : la session Plasma Wayland elle-même
 après autologin SDDM → à valider en matériel (point 4 ci-dessus).
+
+## Ajout (jeux en ligne)
+
+- [ ] **Fortnite via Heroic + Proton-GE** : install depuis Epic, EAC doit se lancer (compatible Linux depuis déc. 2022). Vérifier `pasteque-anticheat fortnite` → OK. Non testable en VM (besoin compte Epic + GPU).
+- [ ] **Apex Legends / CS2** (Steam, EAC/VAC) : lancement en ligne réel.

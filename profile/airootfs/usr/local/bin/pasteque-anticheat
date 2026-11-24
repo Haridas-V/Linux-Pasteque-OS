@@ -30,7 +30,38 @@ def notify(appid, info):
                    capture_output=True)
 
 
+def query(term):
+    """Mode requete : pasteque-anticheat <appid|nom de jeu> -> affiche le statut anti-cheat."""
+    try:
+        data = json.load(open(DB))
+    except OSError:
+        print("base anti-cheat illisible")
+        return 1
+    db = dict(data.get("appids", {}))
+    for k, v in data.get("games", {}).items():
+        db.setdefault(k, v)
+    t = term.strip().lower()
+    hit = None
+    if term.strip().isdigit() and term.strip() in db:
+        hit = (term.strip(), db[term.strip()])
+    else:
+        for k, v in db.items():
+            if t in k.lower() or t in v.get("name", "").lower():
+                hit = (k, v)
+                break
+    if not hit:
+        print("Pas d'entree pour '%s' (voir https://areweanticheatyet.com)" % term)
+        return 1
+    k, v = hit
+    print("%s [%s] %s" % (v.get("name", k), v.get("status", "?"), v.get("detail", "")))
+    if v.get("launcher"):
+        print("Lancer via : %s" % v["launcher"])
+    return 0 if v.get("status") == "OK" else 2
+
+
 def main():
+    if len(sys.argv) > 1:
+        sys.exit(query(" ".join(sys.argv[1:])))
     if not conf_enabled():
         return
     try:

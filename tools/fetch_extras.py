@@ -13,6 +13,7 @@ import fnmatch
 import json
 import os
 import sys
+import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -28,19 +29,44 @@ EXTRAS = [
 ]
 
 
+def gh_headers():
+    h = {"User-Agent": "pasteque-build/1.0", "Accept": "application/vnd.github+json"}
+    tok = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if tok:
+        h["Authorization"] = "Bearer " + tok  # 5000 req/h au lieu de 60 sans token (rate limit CI)
+    return h
+
+
+def urlopen_retry(req, timeout, tries=4):
+    """urlopen avec retry + backoff sur les erreurs transitoires (403 rate limit, 5xx)."""
+    last = None
+    for i in range(tries):
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except Exception as e:
+            last = e
+            code = getattr(e, "code", None)
+            if code in (403, 429, 500, 502, 503, 504):
+                wait = min(180, 20 * (2 ** i))
+                print("[extras] HTTP %s, retry dans %ds... (%s)" % (code, wait, e), flush=True)
+                time.sleep(wait)
+            else:
+                raise
+    raise last
+
+
 def gh_api_latest_assets(repo):
     """Derniers assets de la release 'latest' d'un repo GitHub, via l'API publique (pas besoin de gh)."""
     url = "https://api.github.com/repos/%s/releases/latest" % repo
-    req = urllib.request.Request(url, headers={"User-Agent": "pasteque-build/1.0",
-                                               "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(req, timeout=120) as r:
+    req = urllib.request.Request(url, headers=gh_headers())
+    with urlopen_retry(req, 120) as r:
         data = json.load(r)
     return [(a["name"], a["browser_download_url"]) for a in data.get("assets", [])]
 
 
 def download(url, dest):
-    req = urllib.request.Request(url, headers={"User-Agent": "pasteque-build/1.0"})
-    with urllib.request.urlopen(req, timeout=600) as r, open(dest, "wb") as f:
+    req = urllib.request.Request(url, headers=gh_headers())
+    with urlopen_retry(req, 600) as r, open(dest, "wb") as f:
         while True:
             chunk = r.read(1 << 20)
             if not chunk:

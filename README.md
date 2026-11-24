@@ -85,6 +85,13 @@ docs/                     # ARCHITECTURE.md, MAINTENANCE.md, POINTS_A_VALIDER_EN
 .github/workflows/        # CI : build de l'ISO en artifact
 ```
 
+## Jeux en ligne (Fortnite, Apex, …)
+
+Tout est embarqué : **Heroic** (Epic/GOG) + **Proton-GE** par défaut + avertisseur
+anti-cheat. Fortnite est jouable en ligne sous Linux (EAC compatible Proton).
+Guide : [docs/JEUX_EN_LIGNE.md](docs/JEUX_EN_LIGNE.md) — vérifie un jeu avec
+`pasteque-anticheat fortnite`.
+
 ## Personnalisation post-installation
 
 Tout est réversible et documenté dans [docs/MAINTENANCE.md](docs/MAINTENANCE.md),
