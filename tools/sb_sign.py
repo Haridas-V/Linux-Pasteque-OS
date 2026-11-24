@@ -26,8 +26,9 @@ ROOTFS = os.path.join(WORK, "rootfs")
 TROOT = os.path.join(REPO, "tools", "root")
 SB = os.path.join(WORK, "sb")
 
-SBSIGN = os.path.join(TROOT, "usr/bin/sbsign")
-OPENSSL = os.path.join(TROOT, "usr/bin/openssl")
+import shutil as _sh
+SBSIGN = os.path.join(TROOT, "usr/bin/sbsign") if os.path.exists(os.path.join(TROOT, "usr/bin/sbsign")) else _sh.which("sbsign")
+OPENSSL = os.path.join(TROOT, "usr/bin/openssl") if os.path.exists(os.path.join(TROOT, "usr/bin/openssl")) else _sh.which("openssl")
 
 MAGIC = b"~Module signature appended~\n"
 
@@ -38,11 +39,11 @@ def run(cmd, **kw):
 
 
 def ensure_tools():
-    if not os.path.exists(SBSIGN):
+    if not SBSIGN:
         print("[sb] sbsign absent -> lancez d'abord: python3 tools/fetch_deb_tools.py", file=sys.stderr)
         sys.exit(1)
-    if not os.path.exists(OPENSSL):
-        print("[sb] openssl absent dans tools/root -> fetch_deb_tools.py", file=sys.stderr)
+    if not OPENSSL:
+        print("[sb] openssl absent -> fetch_deb_tools.py ou openssl système", file=sys.stderr)
         sys.exit(1)
 
 

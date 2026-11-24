@@ -176,10 +176,23 @@ efibootmgr
 os-prober        # dual-boot
 mokutil          # enrôlement clé MOK (Secure Boot) : pasteque-secureboot : detecte les autres OS (option "Installer a cote" de Calamares + menu GRUB)
 cryptsetup       # chiffrement LUKS (case a cocher dans Calamares)
-kdeconnect-kde   # telephone <-> PC (notifications, transfert de fichiers, telecommande)
+kdeconnect       # telephone <-> PC (renomme depuis kdeconnect-kde)
 blueman          # Bluetooth graphique (manettes, casque)
 flameshot        # captures d'ecran annotees
 gnome-disk-utility  # disques/benchmark GUI
+
+# ===== Apps utiles (selection curatee, tout embarque dans l'ISO) =====
+mpv              # lecteur video minimaliste
+strawberry       # lecteur musique (collection locale)
+qbittorrent      # client BitTorrent
+keepassxc        # gestionnaire de mots de passe (coffre chiffre)
+veracrypt        # conteneurs chiffres
+warpinator       # partage de fichiers en LAN (simple, sans config)
+signal-desktop   # messagerie chiffree Signal
+gparted          # partitionnement graphique
+simple-scan      # numerisation (scanner) en GUI
+kate             # editeur de texte avance
+kolourpaint      # dessin simple (type Paint)
 polkit-kde-agent
 xdg-desktop-portal
 

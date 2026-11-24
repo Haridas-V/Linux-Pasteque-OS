@@ -170,6 +170,12 @@ def phase_structure(iso, rep):
                              capture_output=True, text=True, env=tool_env()).stdout
     for f in ["boot", "arch", "EFI"]:
         rep.check("iso-contains-%s" % f, f in listing, "")
+    # Secure Boot : shim MS (BOOTX64.EFI) + grub signe + MokManager dans l'arbre EFI
+    efi_ls = subprocess.run([os.path.join(TROOT, "usr/bin/xorriso"), "-indev", iso, "-ls", "/EFI/BOOT"],
+                            capture_output=True, text=True, env=tool_env()).stdout
+    rep.check("iso-efi-bootx64-shim", "BOOTX64.EFI" in efi_ls.upper(), efi_ls.strip()[:200])
+    rep.check("iso-efi-grubx64-signed", "grubx64.efi" in efi_ls.lower(), "")
+    rep.check("iso-efi-mokmanager", "mmx64.efi" in efi_ls.lower(), "")
     iso_abs = os.path.abspath(iso)
     sha = subprocess.run(["sha256sum", "-c", os.path.basename(iso_abs) + ".sha256"],
                          capture_output=True, text=True, cwd=os.path.dirname(iso_abs))

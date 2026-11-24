@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Lanceur de jeux Pastèque
+Comment=Tous tes jeux (Steam, .exe, AppImages) en un seul endroit
+Exec=/usr/local/bin/pasteque-games
+Icon=applications-games
+Categories=Game;
+Terminal=false

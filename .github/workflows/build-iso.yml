@@ -11,6 +11,12 @@ jobs:
       # Le build rootless a besoin des user-namespaces (unshare -rmpf chroot), bloqués
       # sur les runners hébergés : on tourne tout dans un conteneur trixie privilégié,
       # dont les libs correspondent à celles des debs extraits dans tools/root.
+      - name: Tests unitaires (rapides, sans VM, sans root)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-yaml gnupg openssl
+          python3 tests/test_units.py
+
       - name: Build ISO + tests VM (conteneur trixie privilégié)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -29,7 +35,7 @@ jobs:
             python3 tests/run_vm_test.py --timeout 480
             python3 tests/usb_boot_test.py --uefi --timeout 600
             python3 tests/live_shell.py "$(ls out/*.iso | head -1)"
-            # signature GPG de l'ISO si la cle secrete est configuree (PASTEQUE_GPG_KEY + PASTEQUE_GPG_PASSPHRASE)
+            # signature GPG de l ISO si cle secrete configuree (PASTEQUE_GPG_KEY + PASTEQUE_GPG_PASSPHRASE)
             ISO=$(ls out/*.iso | head -1)
             if [ -n "${PASTEQUE_GPG_KEY:-}" ]; then
               bash tools/sign_iso.sh "$ISO"

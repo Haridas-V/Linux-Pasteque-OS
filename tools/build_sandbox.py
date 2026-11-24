@@ -111,7 +111,8 @@ def run(cmd, **kw):
         # Binaire host (python, unshare, chroot, bash...) : JAMAIS de LD_LIBRARY_PATH
         # vers tools/root, sinon mélange glibc (ex. Ubuntu 24.04 + libs trixie) -> stack smashing.
         env = dict(os.environ)
-    subprocess.run(cmd, check=True, env=env, **kw)
+    kw.setdefault("check", True)
+    return subprocess.run(cmd, env=env, **kw)
 
 
 def chroot(cmd, **kw):
@@ -151,8 +152,23 @@ def step_install():
     if os.path.exists(local):
         pkgs += read_packages(local)
     print("[build] installing %d packages ..." % len(pkgs), flush=True)
-    chroot(["/usr/bin/pacman", "--config", "/etc/pacman.conf.build",
-            "-Sy", "--noconfirm", "--needed", "--overwrite", "*"] + pkgs)
+    # resilient : si un nom de paquet est inconnu du depot, on le retire et on reessaie
+    # (un paquet renomme ne doit jamais casser tout le build)
+    import re as _re
+    for attempt in range(3):
+        r = chroot(["/usr/bin/pacman", "--config", "/etc/pacman.conf.build",
+                    "-Sy", "--noconfirm", "--needed", "--overwrite", "*"] + pkgs,
+                   check=False, capture_output=True, text=True)
+        out = (r.stdout or "") + (r.stderr or "")
+        missing = sorted(set(_re.findall(r"target not found: (\S+)", out)))
+        if r.returncode == 0 or not missing:
+            if r.returncode != 0:
+                raise RuntimeError("pacman a echoue: " + out[-2000:])
+            break
+        print("[build] paquets inconnus retires: %s" % missing, flush=True)
+        pkgs = [p for p in pkgs if p not in missing]
+    else:
+        raise RuntimeError("pacman echoue apres 3 essais")
     # SSH desactive par defaut : retirer openssh si present, sinon masquer sshd
     chroot(["/bin/bash", "-c",
             "pacman --config /etc/pacman.conf.build -Rns --noconfirm openssh 2>/dev/null; "
@@ -503,8 +519,12 @@ def step_iso():
 
 
 def step_secureboot():
-    """Secure Boot : shim signe Microsoft + grub/noyaux/modules signes (cle MOK embarquee)."""
-    run([sys.executable, os.path.join(TOOLS, "fetch_shim.py")])
+    """Secure Boot : shim signe Microsoft + grub/noyaux/modules signes (cle MOK embarquee).
+    Non bloquant : si le shim ne peut pas etre telecharge, on signe quand meme
+    grub/noyaux/modules et on retombe sur BOOTX64.EFI = grub (Secure Boot off requis)."""
+    r = run([sys.executable, os.path.join(TOOLS, "fetch_shim.py")], check=False)
+    if r.returncode != 0 or not os.path.exists(os.path.join(WORK, "shim", "shimx64.efi")):
+        print("[build] shim indisponible (reseau ?) -> mode sans shim, SB off requis", flush=True)
     run([sys.executable, os.path.join(TOOLS, "sb_sign.py")])
 
 

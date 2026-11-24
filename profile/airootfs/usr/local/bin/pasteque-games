@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""Lanceur de jeux Pastèque (GUI) — créé pour la distro.
+
+Liste :
+- les jeux Steam installés (appmanifest_*.acf) → lancement via steam -applaunch
+- les jeux indexés localement (fichiers pasteque-*.desktop de l'indexeur :
+  .exe via Wine, AppImages, exécutables) → lancement direct
+- le statut anti-cheat (base embarquée) en badge.
+
+Mode CLI pour tests : pasteque-games --list  (affiche les jeux trouvés, sans GUI)
+"""
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+
+HOME = os.path.expanduser("~")
+APPS = os.path.join(HOME, ".local/share/applications")
+STEAMAPPS = os.path.join(HOME, ".steam/steamapps")
+DB = "/usr/share/pasteque/anticheat-db.json"
+
+
+def anticheat_status(appid):
+    try:
+        db = json.load(open(DB)).get("appids", {})
+        return db.get(str(appid), {}).get("status", "")
+    except OSError:
+        return ""
+
+
+def steam_games():
+    out = []
+    for acf in glob.glob(os.path.join(STEAMAPPS, "appmanifest_*.acf")):
+        txt = open(acf, errors="replace").read()
+        appid = re.search(r'"appid"\s*"(\d+)"', txt)
+        name = re.search(r'"name"\s*"([^"]+)"', txt)
+        if appid and name:
+            out.append({"name": name.group(1), "kind": "steam", "appid": appid.group(1),
+                        "ac": anticheat_status(appid.group(1))})
+    return sorted(out, key=lambda g: g["name"].lower())
+
+
+def local_games():
+    out = []
+    for d in sorted(glob.glob(os.path.join(APPS, "pasteque-*.desktop"))):
+        name, exec_, comment = None, None, ""
+        for line in open(d, errors="replace"):
+            if line.startswith("Name="):
+                name = line[5:].strip()
+            elif line.startswith("Exec="):
+                exec_ = line[5:].strip()
+            elif line.startswith("Comment="):
+                comment = line[8:].strip()
+        if name and exec_:
+            out.append({"name": name, "kind": "local", "exec": exec_, "ac": "", "comment": comment})
+    return out
+
+
+def launch(game):
+    if game["kind"] == "steam":
+        subprocess.Popen(["steam", "-applaunch", game["appid"]])
+    else:
+        subprocess.Popen(["/bin/bash", "-c", game["exec"]])
+
+
+def cli_list():
+    games = steam_games() + local_games()
+    for g in games:
+        tag = " [Steam%s]" % (("/" + g["ac"]) if g.get("ac") else "") if g["kind"] == "steam" else " [local]"
+        print("%s%s" % (g["name"], tag))
+    print("total: %d jeux" % len(games))
+    return 0
+
+
+def gui():
+    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                                 QTableWidget, QTableWidgetItem, QPushButton, QLabel,
+                                 QHeaderView, QMessageBox)
+    from PyQt6.QtGui import QColor
+    from PyQt6.QtCore import Qt
+
+    class Games(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle("🎮 Lanceur de jeux — Pastèque Linux")
+            self.games = steam_games() + local_games()
+            w = QWidget()
+            self.setCentralWidget(w)
+            v = QVBoxLayout(w)
+            v.addWidget(QLabel("%d jeux trouvés (Steam + .exe/AppImages indexés). Double-clic = lancer." % len(self.games)))
+            self.table = QTableWidget(0, 4)
+            self.table.setHorizontalHeaderLabels(["Jeu", "Type", "Anti-cheat", "Commentaire"])
+            self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+            self.table.cellDoubleClicked.connect(self.on_double)
+            v.addWidget(self.table)
+            row = QHBoxLayout()
+            self.btn = QPushButton("Lancer la sélection")
+            self.btn.clicked.connect(self.on_launch)
+            self.btn_refresh = QPushButton("Rafraîchir (réindexer)")
+            self.btn_refresh.clicked.connect(self.refresh)
+            row.addWidget(self.btn); row.addWidget(self.btn_refresh)
+            v.addLayout(row)
+            self.populate()
+            self.resize(820, 520)
+
+        def populate(self):
+            self.table.setRowCount(0)
+            for i, g in enumerate(self.games):
+                self.table.insertRow(i)
+                self.table.setItem(i, 0, QTableWidgetItem(g["name"]))
+                self.table.setItem(i, 1, QTableWidgetItem("Steam" if g["kind"] == "steam" else "Local"))
+                ac = QTableWidgetItem(g.get("ac") or "—")
+                if g.get("ac") == "KO":
+                    ac.setForeground(QColor("red"))
+                elif g.get("ac") == "OK":
+                    ac.setForeground(QColor("green"))
+                self.table.setItem(i, 2, ac)
+                self.table.setItem(i, 3, QTableWidgetItem(g.get("comment", "")))
+
+        def selected(self):
+            r = self.table.currentRow()
+            return self.games[r] if 0 <= r < len(self.games) else None
+
+        def on_double(self, row, col):
+            g = self.games[row] if 0 <= row < len(self.games) else None
+            if g:
+                if g.get("ac") == "KO":
+                    QMessageBox.warning(self, "Anti-cheat", "%s : statut KO sous Linux.\n%s" % (g["name"], "Ce jeu sera probablement bloqué en ligne."))
+                launch(g)
+
+        def on_launch(self):
+            g = self.selected()
+            if g:
+                launch(g)
+
+        def refresh(self):
+            subprocess.run(["/usr/local/bin/pasteque-appindexer"], capture_output=True)
+            self.games = steam_games() + local_games()
+            self.populate()
+
+    app = QApplication(sys.argv)
+    m = Games()
+    m.show()
+    return app.exec()
+
+
+def main():
+    if "--list" in sys.argv:
+        return cli_list()
+    return gui()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
