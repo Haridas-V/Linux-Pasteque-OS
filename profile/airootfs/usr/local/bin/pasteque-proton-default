@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Applique Proton-GE comme outil de compatibilite PAR DEFAUT pour tous les
+jeux Steam (cle "0" de CompatToolMapping dans ~/.steam/steam/config/config.vdf).
+Reversible : supprimer la cle "0" restaure le comportement Steam par defaut.
+"""
+import glob
+import os
+import re
+import sys
+
+HOME = os.path.expanduser("~")
+CFG = os.path.join(HOME, ".steam/steam/config/config.vdf")
+CTD = os.path.join(HOME, ".steam/root/compatibilitytools.d")
+
+
+def proton_tool_name():
+    for d in sorted(glob.glob(os.path.join(CTD, "*")), reverse=True):
+        vdf = os.path.join(d, "compatibilitytool.vdf")
+        if os.path.exists(vdf):
+            m = re.search(r'"name"\s+"([^"]+)"', open(vdf, errors="replace").read())
+            if m and ("proton" in m.group(1).lower() or "ge" in m.group(1).lower()):
+                return m.group(1)
+    # repli : nom du dossier (ex. GE-Proton9-25)
+    ds = sorted(glob.glob(os.path.join(CTD, "*proton*", "")) + glob.glob(os.path.join(CTD, "*GE-Proton*", "")), reverse=True)
+    if ds:
+        return os.path.basename(ds[0].rstrip("/"))
+    return None
+
+
+def main():
+    name = proton_tool_name()
+    if not name:
+        print("Proton-GE non trouve dans compatibilitytools.d (lancez d'abord pasteque-install-extras / Steam).")
+        return 1
+    os.makedirs(os.path.dirname(CFG), exist_ok=True)
+    txt = open(CFG, encoding="utf-8", errors="replace").read() if os.path.exists(CFG) else \
+        '"Software"\n{\n\t"Valve"\n\t{\n\t\t"Steam"\n\t\t{\n\t\t}\n\t}\n}\n'
+    block = '\t\t\t"CompatToolMapping"\n\t\t\t{\n\t\t\t\t"0"\n\t\t\t\t{\n\t\t\t\t\t"name"\t\t"%s"\n\t\t\t\t\t"config"\t\t""\n\t\t\t\t\t"priority"\t\t"250"\n\t\t\t\t}\n\t\t\t}\n' % name
+    if '"CompatToolMapping"' in txt:
+        # remplace le contenu du bloc CompatToolMapping existant
+        txt = re.sub(r'"CompatToolMapping"\s*\{.*?\n\t\t\t\}',
+                     lambda m: '"CompatToolMapping"\n\t\t\t{\n\t\t\t\t"0"\n\t\t\t\t{\n\t\t\t\t\t"name"\t\t"%s"\n\t\t\t\t\t"config"\t\t""\n\t\t\t\t\t"priority"\t\t"250"\n\t\t\t\t}\n\t\t\t}' % name,
+                     txt, count=1, flags=re.S)
+    else:
+        # insere CompatToolMapping dans le bloc "Steam"
+        txt = txt.replace('\t\t"Steam"\n\t\t{\n\t\t}',
+                          '\t\t"Steam"\n\t\t{\n' + block + '\t\t}', 1)
+        if '"CompatToolMapping"' not in txt:
+            # structure inattendue : insere avant les 2 derniers closing braces
+            idx = txt.rstrip().rfind("}")
+            idx2 = txt.rstrip()[:idx].rstrip().rfind("}")
+            txt = txt[:idx2] + block + txt[idx2:]
+    open(CFG, "w", encoding="utf-8").write(txt)
+    print("Proton-GE (%s) defini par defaut pour tous les jeux Steam." % name)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

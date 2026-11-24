@@ -85,6 +85,16 @@ docs/                     # ARCHITECTURE.md, MAINTENANCE.md, POINTS_A_VALIDER_EN
 .github/workflows/        # CI : build de l'ISO en artifact
 ```
 
+## Fonctionnalités embarquées (ISO ~6 Go, clé de 30 Go OK)
+
+- **Mise à jour système en GUI** : bouton « Mettre à jour maintenant » dans le gestionnaire
+  (onglet Réglages) + mises à jour auto au repos, snapshots Btrfs + rollback auto.
+- **Tour de bienvenue** au premier boot (5 écrans, une seule fois).
+- **Proton-GE par défaut pour tous les jeux Steam** (1 clic dans l'onglet Jeux).
+- **Noyau LTS de secours** : entrée GRUB dédiée si le noyau principal casse.
+- **zram + earlyoom** : anti-freeze sur les petites configs.
+- Tout le reste : voir ci-dessous.
+
 ## Jeux en ligne (Fortnite, Apex, …)
 
 Tout est embarqué : **Heroic** (Epic/GOG) + **Proton-GE** par défaut + avertisseur

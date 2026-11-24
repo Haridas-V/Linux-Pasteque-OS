@@ -14,7 +14,8 @@ import sys
 
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QTabWidget, QTableWidget, QTableWidgetItem, QPushButton,
-                             QLabel, QSlider, QCheckBox, QMessageBox, QHeaderView, QComboBox)
+                             QLabel, QSlider, QCheckBox, QMessageBox, QHeaderView, QComboBox,
+                             QPlainTextEdit)
 from PyQt6.QtCore import Qt
 
 HOME = os.path.expanduser("~")
@@ -193,6 +194,16 @@ class GamesTab(QWidget):
             self.table.setItem(n, 1, QTableWidgetItem(detail or "—"))
             self.table.setItem(n, 2, QTableWidgetItem(status))
             n += 1
+        row = QHBoxLayout()
+        self.proton_btn = QPushButton("Appliquer Proton-GE par d\u00e9faut \u00e0 TOUS les jeux Steam")
+        self.proton_btn.clicked.connect(self.proton_default)
+        row.addWidget(self.proton_btn)
+        row.addWidget(QLabel("(Epic/Heroic : reglazure jeu par jeu dans Heroic)"))
+        self.layout().addLayout(row)
+
+    def proton_default(self):
+        r = run(["/usr/local/bin/pasteque-proton-default"])
+        QMessageBox.information(self, "Proton-GE", r.stdout.strip() or r.stderr.strip() or "OK")
 
 
 class SettingsTab(QWidget):
@@ -227,7 +238,54 @@ class SettingsTab(QWidget):
         self.ac.setChecked(conf_get("ANTICHEAT_WARNINGS", "1") == "1")
         self.ac.toggled.connect(lambda v: conf_set("ANTICHEAT_WARNINGS", "1" if v else "0"))
         self.layout().addWidget(self.ac)
+        # ---- Mise a jour systeme (option GUI) ----
+        self.layout().addWidget(QLabel(""))
+        self.layout().addWidget(QLabel("Mises \u00e0 jour du syst\u00e8me (paquets + Flatpaks, snapshots Btrfs auto avant/apr\u00e8s) :"))
+        self.upd_status = QLabel("")
+        self.layout().addWidget(self.upd_status)
+        row = QHBoxLayout()
+        self.btn_check = QPushButton("V\u00e9rifier les mises \u00e0 jour")
+        self.btn_check.clicked.connect(self.check_updates)
+        self.btn_update = QPushButton("Mettre \u00e0 jour maintenant")
+        self.btn_update.clicked.connect(self.do_update)
+        self.btn_snaps = QPushButton("Snapshots (rollback)")
+        self.btn_snaps.clicked.connect(self.show_snaps)
+        row.addWidget(self.btn_check); row.addWidget(self.btn_update); row.addWidget(self.btn_snaps)
+        self.layout().addLayout(row)
+        self.upd_log = QPlainTextEdit(); self.upd_log.setReadOnly(True); self.upd_log.setMaximumHeight(140)
+        self.layout().addWidget(self.upd_log)
+        self.refresh_update_status()
         self.layout().addStretch(1)
+
+    def refresh_update_status(self):
+        try:
+            txt = "Derni\u00e8re mise \u00e0 jour : " + open("/var/lib/pasteque/last-update").read().strip()
+        except OSError:
+            txt = "Derni\u00e8re mise \u00e0 jour : jamais"
+        r = run(["pacman", "-Qu"])
+        n = len([l for l in r.stdout.splitlines() if l.strip()])
+        self.upd_status.setText(txt + "  |  en attente : %d" % n)
+
+    def check_updates(self):
+        run(["pacman", "-Sy"])
+        self.refresh_update_status()
+        self.upd_log.appendPlainText("Verification : " + self.upd_status.text())
+
+    def do_update(self):
+        self.upd_log.appendPlainText("Mise a jour en cours (snapshot Btrfs avant/apres, rollback auto si echec au boot)...")
+        QApplication.processEvents()
+        r = run(["pkexec", "/usr/local/bin/pasteque-update", "--force"])
+        self.upd_log.appendPlainText((r.stdout or "") + (r.stderr or ""))
+        self.refresh_update_status()
+        if r.returncode == 0:
+            QMessageBox.information(self, "Mise a jour", "Systeme a jour. Redemarrage conseille (noyau). Snapshots : bouton ci-dessus.")
+        else:
+            QMessageBox.warning(self, "Mise a jour", "Voir le journal (code %d)." % r.returncode)
+
+    def show_snaps(self):
+        r = run(["btrfs", "subvolume", "list", "-o", "/", "/.snapshots"])
+        snaps = [l.split()[-1] for l in r.stdout.splitlines() if l.strip()]
+        self.upd_log.appendPlainText("Snapshots (rollback au boot via menu GRUB) :\n" + "\n".join(snaps[-15:]))
 
 
 class Main(QMainWindow):

@@ -6,12 +6,17 @@
 # ===== Noyau / base =====
 base
 linux
+linux-lts            # noyau de secours (entree GRUB de secours si le noyau principal casse)
+linux-headers
+linux-lts-headers
 linux-firmware
 mkinitcpio
 mkinitcpio-archiso
 systemd
 systemd-sysvcompat
 archlinux-keyring
+zram-generator       # swap compressee en RAM (anti-freeze petites configs)
+earlyoom             # tue le processus le plus gourmand avant le freeze OOM
 
 # ===== Réseau / outils =====
 networkmanager

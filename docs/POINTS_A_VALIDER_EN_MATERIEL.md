@@ -55,3 +55,9 @@ après autologin SDDM → à valider en matériel (point 4 ci-dessus).
 
 - [ ] **Fortnite via Heroic + Proton-GE** : install depuis Epic, EAC doit se lancer (compatible Linux depuis déc. 2022). Vérifier `pasteque-anticheat fortnite` → OK. Non testable en VM (besoin compte Epic + GPU).
 - [ ] **Apex Legends / CS2** (Steam, EAC/VAC) : lancement en ligne réel.
+
+- [ ] **Bouton « Mettre à jour maintenant »** (GUI) : pkexec sans mot de passe (règle polkit wheel), snapshot + pacman -Syu + flatpak update.
+- [ ] **Tour de bienvenue** affiché une seule fois au 1er boot de la session installée.
+- [ ] **Proton-GE par défaut** : lancer un jeu Steam non vérifié → Proton-GE utilisé.
+- [ ] **Noyau LTS** : entrée GRUB « noyau LTS de secours » bootable (utile si mise à jour du noyau principal casse).
+- [ ] **zram** : `swapon --show` montre /dev/zram0 ; earlyoom actif (`systemctl status earlyoom`).

@@ -106,6 +106,15 @@ t extras-winege test -n "$(ls /opt/pasteque/extras/wine-ge/*.tar.xz 2>/dev/null)
 t extras-heroic test -x /opt/pasteque/extras/heroic/heroic.AppImage
 t extras-teams test -x /opt/pasteque/extras/teams/teams.AppImage
 
+# 4e-bis. nouvelles fonctionnalites (maj GUI, welcome, zram/earlyoom, noyau LTS, polkit)
+t update-gui bash -c "test -x /usr/local/bin/pasteque-proton-default && grep -q 'pkexec' /usr/local/bin/pasteque-appmanager && grep -q -- '--force' /usr/local/bin/pasteque-update"
+t welcome test -x /usr/local/bin/pasteque-welcome -a -f /etc/xdg/autostart/pasteque-welcome.desktop
+t zram test -f /etc/systemd/zram-generator.conf
+t earlyoom test -L /etc/systemd/system/multi-user.target.wants/earlyoom.service
+t polkit-update test -f /etc/polkit-1/rules.d/49-pasteque.rules
+t kernel-lts bash -c "ls -d /usr/lib/modules/*lts* >/dev/null 2>&1"
+t anticheat-fortnite python3 -c "import json; d=json.load(open('/usr/share/pasteque/anticheat-db.json')); assert d['games']['fortnite']['status']=='OK'; print('fortnite OK')"
+
 # 4f. config centrale + unités systemd
 t pasteque-conf python3 -c "
 c=dict(l.split('=',1) for l in open('/etc/pasteque/pasteque.conf') if '=' in l and not l.startswith('#'))

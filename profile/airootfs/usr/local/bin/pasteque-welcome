@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Tour de bienvenue Pastèque (lance une seule fois au premier boot).
+5 écrans : accueil, jeux en ligne, anti-frustration, mises à jour, sécurité."""
+import os
+import sys
+
+from PyQt6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                             QPushButton, QTextBrowser)
+from PyQt6.QtGui import QFont
+
+FLAG = os.path.expanduser("~/.config/pasteque/welcome-done")
+
+SLIDES = [
+    ("🍉 Bienvenue dans Pastèque Linux !",
+     "Ta distro gaming, en français, préconfigurée et 100 % hors-ligne.\n"
+     "KDE Plasma (Wayland), thème sombre, clavier auto-détecté, GPU AMD (Mesa RADV + Vulkan).\n"
+     "Rien à configurer : tout marche dès le premier boot."),
+    ("🎮 Jeux en ligne",
+     "• Steam : Proton-GE déjà actif par défaut, GameMode + MangoHud automatiques.\n"
+     "• Fortnite et Epic/GOG : lanceur Heroic (icône bureau), compte Epic à connecter.\n"
+     "• Anti-cheat : les jeux bloqués sous Linux (Valorant, CoD…) affichent un avertissement.\n"
+     "  Vérifie un jeu : `pasteque-anticheat fortnite` (voir docs/JEUX_EN_LIGNE.md)."),
+    ("✨ Zéro frustration",
+     "• Tes .exe / AppImages apparaissent automatiquement dans le menu KDE (avec icônes).\n"
+     "• Tout se retire en 2 clics dans le « Gestionnaire d'applications Pastèque » (icône bureau),\n"
+     "  avec nettoyage des résidus et corbeille de sauvegarde restaurable.\n"
+     "• Disques externes : bibliothèques Steam auto-détectées."),
+    ("🔄 Mises à jour sans stress",
+     "• Mises à jour silencieuses quand la machine est au repos (jamais en pleine partie).\n"
+     "• Snapshot Btrfs avant/après chaque mise à jour + rollback auto si le boot échoue.\n"
+     "• Bouton « Mettre à jour maintenant » dans le gestionnaire, onglet Réglages."),
+    ("🔒 Sécurité par défaut",
+     "• Compte utilisateur non-root, root verrouillé, sudo via ton mot de passe.\n"
+     "• Pare-feu actif, SSH désactivé.\n"
+     "• Tout est réversible : /etc/pasteque/pasteque.conf + curseur d'immuabilité (0 à 5)."),
+]
+
+
+class Welcome(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Bienvenue dans Pastèque Linux 🍉")
+        self.i = 0
+        self.resize(640, 420)
+        self.v = QVBoxLayout(self)
+        self.title = QLabel()
+        self.title.setFont(QFont("Sans", 16, QFont.Bold))
+        self.body = QTextBrowser()
+        self.v.addWidget(self.title)
+        self.v.addWidget(self.body)
+        h = QHBoxLayout()
+        self.prev = QPushButton("← Précédent")
+        self.next = QPushButton("Suivant →")
+        self.skip = QPushButton("Passer")
+        self.prev.clicked.connect(self.go_prev)
+        self.next.clicked.connect(self.go_next)
+        self.skip.clicked.connect(self.finish)
+        h.addWidget(self.prev); h.addWidget(self.skip); h.addWidget(self.next)
+        self.v.addLayout(h)
+        self.show_slide()
+
+    def show_slide(self):
+        t, b = SLIDES[self.i]
+        self.title.setText(t)
+        self.body.setPlainText(b)
+        self.prev.setEnabled(self.i > 0)
+        self.next.setText("Terminer ✅" if self.i == len(SLIDES) - 1 else "Suivant →")
+
+    def go_prev(self):
+        if self.i > 0:
+            self.i -= 1
+            self.show_slide()
+
+    def go_next(self):
+        if self.i < len(SLIDES) - 1:
+            self.i += 1
+            self.show_slide()
+        else:
+            self.finish()
+
+    def finish(self):
+        os.makedirs(os.path.dirname(FLAG), exist_ok=True)
+        open(FLAG, "w").write("ok\n")
+        self.close()
+
+
+def main():
+    if os.path.exists(FLAG):
+        return 0
+    app = QApplication(sys.argv)
+    w = Welcome()
+    w.exec()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

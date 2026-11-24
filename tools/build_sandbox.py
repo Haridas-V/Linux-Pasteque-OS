@@ -292,6 +292,16 @@ def step_initramfs():
     img = os.path.join(ROOTFS, "boot/initramfs-linux.img")
     assert os.path.exists(img), "initramfs manquante"
     print("[build] initramfs OK:", os.path.getsize(img) // 1024 // 1024, "MiB", flush=True)
+    # noyau LTS de secours : symlink + initramfs dediee (entree GRUB de secours)
+    chroot(["/bin/bash", "-c",
+            "kvl=$(ls /usr/lib/modules | grep -i lts | head -1); "
+            "if [ -n \"$kvl\" ]; then ln -sf /usr/lib/modules/$kvl/vmlinuz /boot/vmlinuz-lts; "
+            "mkinitcpio -c /etc/mkinitcpio.conf -k /boot/vmlinuz-lts -g /boot/initramfs-lts.img; fi"])
+    lts_img = os.path.join(ROOTFS, "boot/initramfs-lts.img")
+    if os.path.exists(lts_img):
+        print("[build] initramfs LTS OK:", os.path.getsize(lts_img) // 1024 // 1024, "MiB", flush=True)
+    else:
+        print("[build] pas de noyau LTS, entree de secours ignoree", flush=True)
 
 
 def add_efi_mbr_partition(iso_path, efi_img):
@@ -349,6 +359,13 @@ def step_iso():
     initrd_src = os.path.join(ROOTFS, "boot/initramfs-linux.img")
     assert os.path.exists(initrd_src), "initramfs manquante: lancez d'abord l'étape initramfs"
     shutil.copy2(initrd_src, os.path.join(iso, "boot/x86_64/initramfs-linux.img"))
+    # noyau LTS de secours dans l'ISO aussi
+    lts_kernel = os.path.join(ROOTFS, "boot/vmlinuz-lts")
+    lts_initrd = os.path.join(ROOTFS, "boot/initramfs-lts.img")
+    have_lts = os.path.exists(lts_kernel) and os.path.exists(lts_initrd)
+    if have_lts:
+        shutil.copy2(lts_kernel, os.path.join(iso, "boot/x86_64/vmlinuz-lts"))
+        shutil.copy2(lts_initrd, os.path.join(iso, "boot/x86_64/initramfs-lts.img"))
 
     # restaure le helper setuid de dbus (illisible sinon depuis le cache pacman)
     import tarfile as _tf
@@ -392,6 +409,9 @@ def step_iso():
         f.write("DEFAULT pasteque\nTIMEOUT 30\n"
                 "LABEL pasteque\n  KERNEL /boot/x86_64/vmlinuz-linux\n"
                 "  APPEND initrd=/boot/x86_64/initramfs-linux.img %s\n" % CMDLINE)
+        if have_lts:
+            f.write("LABEL pasteque-lts\n  KERNEL /boot/x86_64/vmlinuz-lts\n"
+                    "  APPEND initrd=/boot/x86_64/initramfs-lts.img %s\n" % CMDLINE)
 
     # grub (UEFI)
     with open(os.path.join(iso, "boot/grub/grub.cfg"), "w") as f:
@@ -399,6 +419,10 @@ def step_iso():
                 "menuentry 'Pasteque Linux (live)' {\n"
                 "  linux /boot/x86_64/vmlinuz-linux %s\n"
                 "  initrd /boot/x86_64/initramfs-linux.img\n}\n" % CMDLINE)
+        if have_lts:
+            f.write("menuentry 'Pasteque Linux (live, noyau LTS de secours)' {\n"
+                    "  linux /boot/x86_64/vmlinuz-lts %s\n"
+                    "  initrd /boot/x86_64/initramfs-lts.img\n}\n" % CMDLINE)
     efiwork = os.path.join(WORK, "efiwork")
     shutil.rmtree(efiwork, ignore_errors=True)
     os.makedirs(os.path.join(efiwork, "EFI/BOOT"), exist_ok=True)
@@ -414,11 +438,11 @@ def step_iso():
          "-c", early,
          "-p", "(cd0)/boot/grub"] + modules)
     efi_img = os.path.join(iso, "boot/efi.img")
-    # 512 MiB : un FAT32 valide exige >= 65525 clusters, sinon le pilote FAT d'EDK II refuse de monter l'image.
+    # 1024 MiB : un FAT32 (noyau + initrd principal ET LTS embarques) valide exige >= 65525 clusters, sinon le pilote FAT d'EDK II refuse de monter l'image.
     # On y embarque kernel + initrd + grub.cfg : au boot UEFI depuis une cle USB flashee (Etcher/dd),
     # le firmware ne voit que la partition MBR 0xEF (cette image FAT) ; sans ces fichiers embarques,
     # grub tombe en "grub rescue: file '/boot/grub/grub.cfg' not found" sur certains firmwares.
-    run(["dd", "if=/dev/zero", "of=" + efi_img, "bs=1M", "count=512"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    run(["dd", "if=/dev/zero", "of=" + efi_img, "bs=1M", "count=1024"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     run([os.path.join(TROOT, "usr/sbin/mkfs.vfat"), "-F", "32", "-n", ISO_LABEL + "EFI", efi_img])
     run([os.path.join(TROOT, "usr/bin/mmd"), "-i", efi_img, "::/EFI", "::/EFI/BOOT",
          "::/boot", "::/boot/x86_64", "::/boot/grub"])
@@ -428,7 +452,10 @@ def step_iso():
         (os.path.join(iso, "boot/x86_64/vmlinuz-linux"), "::/boot/x86_64/vmlinuz-linux"),
         (os.path.join(iso, "boot/x86_64/initramfs-linux.img"), "::/boot/x86_64/initramfs-linux.img"),
         (os.path.join(iso, "boot/grub/grub.cfg"), "::/boot/grub/grub.cfg"),
-    ]:
+    ] + ([
+        (os.path.join(iso, "boot/x86_64/vmlinuz-lts"), "::/boot/x86_64/vmlinuz-lts"),
+        (os.path.join(iso, "boot/x86_64/initramfs-lts.img"), "::/boot/x86_64/initramfs-lts.img"),
+    ] if have_lts else []):
         run([os.path.join(TROOT, "usr/bin/mcopy"), "-i", efi_img, src, dst])
 
     # arbre EFI à la racine de l'ISO (boot USB hybride)
