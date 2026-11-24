@@ -414,12 +414,22 @@ def step_iso():
          "-c", early,
          "-p", "(cd0)/boot/grub"] + modules)
     efi_img = os.path.join(iso, "boot/efi.img")
-    # 64 MiB : un FAT32 valide exige >= 65525 clusters, sinon le pilote FAT d'EDK II (OVMF) refuse de monter l'image
-    run(["dd", "if=/dev/zero", "of=" + efi_img, "bs=1M", "count=64"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # 512 MiB : un FAT32 valide exige >= 65525 clusters, sinon le pilote FAT d'EDK II refuse de monter l'image.
+    # On y embarque kernel + initrd + grub.cfg : au boot UEFI depuis une cle USB flashee (Etcher/dd),
+    # le firmware ne voit que la partition MBR 0xEF (cette image FAT) ; sans ces fichiers embarques,
+    # grub tombe en "grub rescue: file '/boot/grub/grub.cfg' not found" sur certains firmwares.
+    run(["dd", "if=/dev/zero", "of=" + efi_img, "bs=1M", "count=512"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     run([os.path.join(TROOT, "usr/sbin/mkfs.vfat"), "-F", "32", "-n", ISO_LABEL + "EFI", efi_img])
-    run([os.path.join(TROOT, "usr/bin/mmd"), "-i", efi_img, "::/EFI", "::/EFI/BOOT"])
+    run([os.path.join(TROOT, "usr/bin/mmd"), "-i", efi_img, "::/EFI", "::/EFI/BOOT",
+         "::/boot", "::/boot/x86_64", "::/boot/grub"])
     run([os.path.join(TROOT, "usr/bin/mcopy"), "-i", efi_img,
          os.path.join(efiwork, "EFI/BOOT/BOOTX64.EFI"), "::/EFI/BOOT/BOOTX64.EFI"])
+    for src, dst in [
+        (os.path.join(iso, "boot/x86_64/vmlinuz-linux"), "::/boot/x86_64/vmlinuz-linux"),
+        (os.path.join(iso, "boot/x86_64/initramfs-linux.img"), "::/boot/x86_64/initramfs-linux.img"),
+        (os.path.join(iso, "boot/grub/grub.cfg"), "::/boot/grub/grub.cfg"),
+    ]:
+        run([os.path.join(TROOT, "usr/bin/mcopy"), "-i", efi_img, src, dst])
 
     # arbre EFI à la racine de l'ISO (boot USB hybride)
     shutil.copytree(os.path.join(WORK, "efiwork", "EFI"), os.path.join(iso, "EFI"), dirs_exist_ok=True)
