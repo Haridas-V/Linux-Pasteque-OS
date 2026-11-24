@@ -93,6 +93,10 @@ docs/                     # ARCHITECTURE.md, MAINTENANCE.md, POINTS_A_VALIDER_EN
 - **Proton-GE par défaut pour tous les jeux Steam** (1 clic dans l'onglet Jeux).
 - **Noyau LTS de secours** : entrée GRUB dédiée si le noyau principal casse.
 - **zram + earlyoom** : anti-freeze sur les petites configs.
+- **Dual-boot** : « Installer à côté » de Windows/Mint (détection auto via os-prober, menu GRUB partagé).
+- **Chiffrement LUKS** : case à cocher dans l'installateur (hook `encrypt` + GRUB cryptodisk auto).
+- **KDE Connect** (téléphone↔PC), **Blueman** (Bluetooth/manettes), **Flameshot** (captures), **Disques** (GUI).
+- ISO nommée `pasteque-1.0.iso`.
 - Tout le reste : voir ci-dessous.
 
 ## Jeux en ligne (Fortnite, Apex, …)

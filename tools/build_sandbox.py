@@ -462,7 +462,7 @@ def step_iso():
     shutil.copytree(os.path.join(WORK, "efiwork", "EFI"), os.path.join(iso, "EFI"), dirs_exist_ok=True)
     # ISO hybride
     os.makedirs(OUT, exist_ok=True)
-    iso_out = os.path.join(OUT, "%s-%s.iso" % (ISO_NAME, os.environ.get("ISO_VERSION", "dev")))
+    iso_out = os.path.join(OUT, "%s-%s.iso" % (ISO_NAME, os.environ.get("ISO_VERSION", "1.0")))
     if os.path.exists(iso_out):
         os.remove(iso_out)
     run([os.path.join(TROOT, "usr/bin/xorriso"), "-as", "mkisofs",

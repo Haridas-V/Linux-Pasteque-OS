@@ -26,7 +26,7 @@ jobs:
             set +e
             python3 tests/run_vm_test.py --timeout 480
             python3 tests/usb_boot_test.py --uefi --timeout 600
-            python3 tests/live_shell.py out/pasteque-dev.iso
+            python3 tests/live_shell.py "$(ls out/*.iso | head -1)"
           '
       - name: Upload ISO (artifact)
         uses: actions/upload-artifact@v6

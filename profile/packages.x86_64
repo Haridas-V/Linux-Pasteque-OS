@@ -173,6 +173,12 @@ libnotify
 btrfs-progs
 grub
 efibootmgr
+os-prober        # dual-boot : detecte les autres OS (option "Installer a cote" de Calamares + menu GRUB)
+cryptsetup       # chiffrement LUKS (case a cocher dans Calamares)
+kdeconnect-kde   # telephone <-> PC (notifications, transfert de fichiers, telecommande)
+blueman          # Bluetooth graphique (manettes, casque)
+flameshot        # captures d'ecran annotees
+gnome-disk-utility  # disques/benchmark GUI
 polkit-kde-agent
 xdg-desktop-portal
 

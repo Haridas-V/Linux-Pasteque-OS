@@ -61,3 +61,8 @@ après autologin SDDM → à valider en matériel (point 4 ci-dessus).
 - [ ] **Proton-GE par défaut** : lancer un jeu Steam non vérifié → Proton-GE utilisé.
 - [ ] **Noyau LTS** : entrée GRUB « noyau LTS de secours » bootable (utile si mise à jour du noyau principal casse).
 - [ ] **zram** : `swapon --show` montre /dev/zram0 ; earlyoom actif (`systemctl status earlyoom`).
+
+- [ ] **Dual-boot réel** : installer à côté de Mint/Windows → option « Installer à côté » visible, GRUB liste l'autre OS.
+- [ ] **LUKS** : cocher « Chiffrer le système » → boot demande la passphrase (GRUB cryptodisk), système démarre.
+- [ ] **KDE Connect** : appairage téléphone Android/iOS.
+- [ ] **Blueman** : appairage manette Bluetooth/PS5/DualSense.

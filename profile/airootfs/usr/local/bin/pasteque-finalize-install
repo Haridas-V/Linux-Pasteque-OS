@@ -40,7 +40,15 @@ EOC
 mkdir -p /etc/pacman.d/gnupg
 timeout 60 pacman-key --init 2>/dev/null || true
 timeout 120 pacman-key --populate archlinux 2>/dev/null || true
+# si chiffrement LUKS choisi dans Calamares (/etc/crypttab present) : hook encrypt + cryptodisk
+if [ -s /etc/crypttab ]; then
+    sed -i 's/HOOKS=(base udev modconf block pasteque_mods keyboard filesystems)/HOOKS=(base udev modconf block keyboard encrypt pasteque_mods filesystems)/' /etc/mkinitcpio.conf
+    sed -i 's/^#\?GRUB_ENABLE_CRYPTODISK=.*/GRUB_ENABLE_CRYPTODISK=y/' /etc/default/grub
+fi
 mkinitcpio -P 2>/dev/null || true
+# menu GRUB avec les autres OS detectes (dual-boot)
+os-prober >/dev/null 2>&1 || true
+grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
 # installer les extras pour l'utilisateur créé
 /usr/bin/python3 /usr/local/bin/pasteque-install-extras 2>/dev/null || true
 # entrée de menu pour le gestionnaire d'applications Pastèque
