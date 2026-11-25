@@ -466,8 +466,6 @@ def step_iso():
     mokmgr = os.path.join(WORK, "shim", "mmx64.efi")
     have_shim = os.path.exists(shim) and os.path.exists(os.path.join(WORK, "efiwork", "EFI/BOOT/grubx64.efi"))
     if have_shim:
-        shutil.copy2(os.path.join(WORK, "efiwork", "EFI/BOOT/grubx64.efi"),
-                     os.path.join(efiwork, "EFI/BOOT/grubx64.efi"))
         shutil.copy2(shim, os.path.join(efiwork, "EFI/BOOT/BOOTX64.EFI"))
         shutil.copy2(mokmgr, os.path.join(efiwork, "EFI/BOOT/mmx64.efi"))
         print("[build] Secure Boot: shim MS + grubx64.efi signe + MokManager embarques", flush=True)
