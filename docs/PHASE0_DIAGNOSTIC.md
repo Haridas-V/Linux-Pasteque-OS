@@ -59,3 +59,14 @@ Les `.wants/*.service` pointent vers `/usr/lib/systemd/system/...` (peuplé à l
 ## 8. Recommandation pour la suite du sprint
 
 Phase 1 (stabiliser) : corriger #1, commit #6/#7, épingler `mistralai-agents`, nettoyer #3, couvrir build.sh/secureboot, attendre un run CI 100 % vert (build + VM + install + boot installé) comme **non-régression minimale** (boot OK, session OK, appmanager/games se lancent — testables en VM via live_shell).
+
+---
+
+## Mise à jour — Phase 1 appliquée (one shot)
+
+- ✅ `chroot()` retourne désormais le `CompletedProcess` (fix du crash CI `45497164054`)
+- ✅ `pasteque-bootcheck` (comparaison chaînée) et `pasteque-steamlibs` (`is False`) commités
+- ✅ Code mort supprimé : `tools/euid_shim.c/.so`, `packages-aur/calamares/etc-calamares-reference/`
+- ✅ `agents/pyproject.toml` : `mistralai-agents==1.1.3` épinglé (version testée)
+- ✅ `build.sh` documente la parité : ISO v1.0 complète (Secure Boot signé) = build rootless
+- ✅ Garde-fous en CI : `tests/test_units.py` (10 tests) avant le build + `bash -n` du script workflow

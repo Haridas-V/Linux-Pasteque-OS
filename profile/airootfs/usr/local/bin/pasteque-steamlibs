@@ -20,7 +20,7 @@ def find_libraries():
 
 
 def update_vdf(path, libs):
-    if os.path.isdir(os.path.dirname(path)) is False:
+    if not os.path.isdir(os.path.dirname(path)):
         return
     existing = open(path).read() if os.path.exists(path) else '"libraryfolders"\n{\n}\n'
     have = set(re.findall(r'"path"\s*"([^"]+)"', existing))

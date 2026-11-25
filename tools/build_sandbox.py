@@ -116,7 +116,7 @@ def run(cmd, **kw):
 
 
 def chroot(cmd, **kw):
-    run([os.path.join(TOOLS, "chroot.sh"), ROOTFS] + cmd, **kw)
+    return run([os.path.join(TOOLS, "chroot.sh"), ROOTFS] + cmd, **kw)
 
 
 def read_packages(path):

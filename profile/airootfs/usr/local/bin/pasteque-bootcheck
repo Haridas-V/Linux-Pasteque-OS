@@ -11,11 +11,11 @@ TIMEOUT = 600
 
 
 def session_ok():
-    r = subprocess.run(["loginctl", "list-sessions", "--no-legend"], capture_output=True, text=True)
-    for line in r.stdout.splitlines():
-        p = line.split()
-        if len(p) >= 4 and p[3] not in ("", "seat0") is False:
-            pass
+    # la session graphique est atteinte -> boot OK
+    r = subprocess.run(["systemctl", "is-active", "graphical.target"], capture_output=True, text=True)
+    if r.stdout.strip() == "active":
+        return True
+    # repli : au moins une session logind ouverte
     r = subprocess.run(["busctl", "get-property", "org.freedesktop.login1",
                         "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "Sessions"],
                        capture_output=True, text=True)

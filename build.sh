@@ -4,6 +4,11 @@
 # Sur un hôte Arch (ou dans le conteneur archlinux:ci) :
 #   sudo ./build.sh
 # Sans archiso installé, utilise Docker automatiquement.
+#
+# NOTE parité : ce chemin mkarchiso produit l'ISO de base (boot BIOS+UEFI, sans
+# signature Secure Boot). Pour l'ISO v1.0 COMPLÈTE (shim signé + MOK + modules signés,
+# signature GPG), utilisez le build rootless :  python3 tools/build_sandbox.py all
+# (aucun sudo requis) -> out/pasteque-1.0.iso
 set -euo pipefail
 cd "$(dirname "$0")"
 
