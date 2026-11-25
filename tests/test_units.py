@@ -238,6 +238,18 @@ def test_personnalise_dryrun():
     assert "kwriteconfig5" in r.stdout or "plasma-apply" in r.stdout
 
 
+def test_fortnite_app():
+    import json as _json
+    app = os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-fortnite")
+    db = os.path.join(REPO, "profile/airootfs/usr/share/pasteque/anticheat-db.json")
+    env = dict(os.environ, PASTEQUE_ANTICHEAT_DB=db)
+    r = subprocess.run([sys.executable, app, "--smoke"], capture_output=True, text=True, env=env)
+    assert r.returncode == 0 and "smoke OK" in r.stdout, r.stdout + r.stderr
+    r = subprocess.run([sys.executable, app, "status"], capture_output=True, text=True, env=env)
+    st = _json.loads(r.stdout)
+    assert st["anticheat_ok"] is True
+
+
 if __name__ == "__main__":
     t("py_compile tous les scripts", compile_all)
     t("bash -n tous les scripts shell", bash_n_all)
@@ -252,6 +264,7 @@ if __name__ == "__main__":
     t("generateur d'apps FR (2 apps generees + compilees)", test_generateur_fr)
     t("fonds d'ecran PNG valides (1920x1080)", test_wallpapers)
     t("panneau personnalisation --dry-run", test_personnalise_dryrun)
+    t("app Fortnite 1-clic (smoke + status)", test_fortnite_app)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

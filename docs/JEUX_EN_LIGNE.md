@@ -4,6 +4,14 @@ Pastèque embarque tout ce qu'il faut pour jouer **en ligne** sans rien installe
 **Heroic** (Epic Games / GOG), **Steam + Proton-GE par défaut**, **Lutris + Wine-GE**,
 et un avertisseur anti-cheat (`pasteque-anticheat`).
 
+## 🎮 Fortnite en 1 clic — app dédiée
+
+L'ISO embarque l'app **🍉 Fortnite** (menu Applications/Jeux) :
+- gros bouton **JOUER** → configure Proton-GE dans Heroic et lance `heroic launch Fortnite`
+- `pasteque-fortnite setup` / `status` / `--smoke` en CLI
+- Proton-GE embarqué branché automatiquement dans Heroic (`GE-Proton-latest`)
+- anti-cheat EAC : statut vérifié (`pasteque-anticheat fortnite` → OK)
+
 ## Fortnite (Epic Games) — fonctionne en ligne ✅
 
 Easy Anti-Cheat (EAC) est **compatible Linux/Proton depuis décembre 2022** (Epic l'a
