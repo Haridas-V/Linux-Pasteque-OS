@@ -14,16 +14,16 @@ HIST = os.path.expanduser("~/.local/share/pasteque/bench-history.json")
 def bench_cpu(seconds=2):
     r = subprocess.run(["openssl", "speed", "-seconds", str(seconds), "rsa2048"],
                        capture_output=True, text=True, timeout=seconds + 30)
-    # dernière ligne "... 12345.67k" -> ops/s
+    # ligne de données : "rsa 2048 bits 0.000123s 0.000045s 8123.4 22222.2" -> score = sign/s (avant-dernier champ)
     ops = None
-    for line in reversed(r.stdout.splitlines()):
-        if "rsa2048" in line or "sign/s" in line:
+    for line in r.stdout.splitlines():
+        t = line.split()
+        if len(t) >= 6 and t[0] == "rsa" and "bits" in t:
             try:
-                ops = float(line.split()[-1].replace("k", "000").replace("s", ""))
+                ops = float(t[-2])
             except Exception:
                 pass
-            break
-    return {"type": "cpu", "detail": "openssl speed rsa2048 %ds" % seconds, "score": ops}
+    return {"type": "cpu", "detail": "openssl speed rsa2048 %ds (sign/s)" % seconds, "score": ops, "unit": "sign/s"}
 
 
 def bench_ram(mb=256):
