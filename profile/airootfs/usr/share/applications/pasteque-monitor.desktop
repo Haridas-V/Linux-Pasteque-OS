@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=📊 Monitoring
+Comment=App Pastèque native
+Exec=/usr/local/bin/pasteque-monitor
+Icon=System
+Terminal=false
+Categories=utilities-system-monitor;

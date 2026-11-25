@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Monitoring système stylé Pastèque — CPU/RAM/SSD/temp, rafraîchi en direct.
+Lit /proc et /sys uniquement (aucune dépendance). --smoke : test headless des lectures."""
+import os
+import shutil
+import sys
+
+
+def lire_cpu():
+    with open("/proc/stat") as f:
+        p = f.readline().split()[1:]
+    vals = list(map(int, p))
+    total = sum(vals)
+    idle = vals[3] + vals[4]
+    try:
+        with open("/tmp/pasteque-cpu") as f:
+            pt, pi = map(int, f.read().split())
+        dt = total - pt
+        return 0 if dt == 0 else round(100 * (1 - (idle - pi) / dt))
+    finally:
+        with open("/tmp/pasteque-cpu", "w") as f:
+            f.write("%d %d" % (total, idle))
+
+
+def lire_ram():
+    d = {}
+    for line in open("/proc/meminfo"):
+        k, v = line.split(":")
+        d[k] = int(v.strip().split()[0])
+    return round(100 * (d["MemTotal"] - d["MemAvailable"]) / d["MemTotal"])
+
+
+def lire_disque():
+    u = shutil.disk_usage("/")
+    return round(100 * u.used / u.total)
+
+
+def lire_temp():
+    try:
+        for z in os.listdir("/sys/class/thermal"):
+            p = "/sys/class/thermal/%s/temp" % z
+            if os.path.exists(p):
+                return int(open(p).read()) // 1000
+    except Exception:
+        pass
+    return None
+
+
+def smoke():
+    cpu, ram, dsk = lire_cpu(), lire_ram(), lire_disque()
+    assert 0 <= cpu <= 100 and 0 <= ram <= 100 and 0 <= dsk <= 100
+    print("smoke OK cpu=%d%% ram=%d%% disque=%d%% temp=%s" % (cpu, ram, dsk, lire_temp()))
+    return 0
+
+
+def gui():
+    from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QProgressBar
+    from PyQt6.QtCore import QTimer
+    from PyQt6.QtGui import QFont
+
+    class Bar(QWidget):
+        def __init__(self, titre):
+            super().__init__()
+            v = QVBoxLayout(self)
+            self.lab = QLabel(titre); self.lab.setFont(QFont("Sans", 11, QFont.Bold))
+            self.bar = QProgressBar(); self.bar.setRange(0, 100); self.bar.setFixedHeight(22)
+            v.addWidget(self.lab); v.addWidget(self.bar)
+
+        def set(self, pct, texte):
+            self.bar.setValue(pct)
+            self.lab.setText("%s — %s" % (texte, "%d %%" % pct))
+            self.bar.setStyleSheet(
+                "QProgressBar::chunk { background: %s; }" %
+                ("#e5484d" if pct > 90 else "#e5a50a" if pct > 70 else "#46a758"))
+
+    class Mon(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle("📊 Monitoring — Pastèque")
+            w = QWidget(); self.setCentralWidget(w)
+            v = QVBoxLayout(w)
+            self.cpu = Bar("CPU"); self.ram = Bar("RAM"); self.dsk = Bar("Disque /")
+            self.tmp = Bar("Température CPU")
+            for b in (self.cpu, self.ram, self.dsk, self.tmp):
+                v.addWidget(b)
+            self.t = QTimer(self); self.t.timeout.connect(self.maj); self.t.start(1000)
+            self.maj()
+            self.resize(460, 340)
+
+        def maj(self):
+            self.cpu.set(lire_cpu(), "CPU")
+            self.ram.set(lire_ram(), "RAM")
+            self.dsk.set(lire_disque(), "Disque /")
+            t = lire_temp()
+            self.tmp.set(t or 0, "Température CPU" + (" (%d °C)" % t if t else " (n/a)"))
+
+    app = QApplication(sys.argv)
+    m = Mon(); m.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(smoke() if "--smoke" in sys.argv else gui())

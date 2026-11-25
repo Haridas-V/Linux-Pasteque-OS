@@ -69,3 +69,7 @@ après autologin SDDM → à valider en matériel (point 4 ci-dessus).
 
 - [ ] **Secure Boot** : activer SB dans le BIOS, enrôler la clé MOK (`pasteque-secureboot`), booter la clé → doit passer (sinon « Secure Boot violation » = clé non enrôlée).
 - [ ] **Signature ISO** : `tools/verify_iso.sh pasteque-1.0.iso <empreinte>` → OK.
+
+- [ ] **Apps natives en session réelle** : ouvrir Notes/Minuteur/Snake/Monitoring depuis le menu → fenêtres OK ; jouer au snake, record sauvegardé après reboot.
+- [ ] **Générateur FR réel** : `pasteque-genere "fais-moi une app qui note mes courses"` → app dans le menu, s'ouvre, données persistantes.
+- [ ] **Personnalisation réelle** : changer thème/accent/fond/panneau → appliqué immédiatement, persistant après reboot.

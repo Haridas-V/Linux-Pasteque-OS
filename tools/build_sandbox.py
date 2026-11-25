@@ -169,6 +169,9 @@ def step_install():
         pkgs = [p for p in pkgs if p not in missing]
     else:
         raise RuntimeError("pacman echoue apres 3 essais")
+    # fonds d'ecran Pasteque (PNG generes en pure python, aucune dependance)
+    run([sys.executable, os.path.join(TOOLS, "gen_wallpapers.py"),
+         os.path.join(PROFILE, "airootfs/usr/share/backgrounds/pasteque")], check=False)
     # SSH desactive par defaut : retirer openssh si present, sinon masquer sshd
     chroot(["/bin/bash", "-c",
             "pacman --config /etc/pacman.conf.build -Rns --noconfirm openssh 2>/dev/null; "

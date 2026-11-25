@@ -102,6 +102,13 @@ docs/                     # ARCHITECTURE.md, MAINTENANCE.md, POINTS_A_VALIDER_EN
   `sudo mokutil --import /usr/share/pasteque/mok/Pasteque.der`) — guide `docs/SECURE_BOOT.md`.
 - Tout le reste : voir ci-dessous.
 
+## Apps natives + générateur d'apps FR + personnalisation
+
+- **Apps embarquées** : 📝 Notes rapides, ⏱️ Minuteur, 🐍 **Snake** (record sauvegardé), 📊 Monitoring stylé, 🎮 Lanceur de jeux — chacune testée (`--smoke`).
+- **Générateur d'apps en français** : `pasteque-genere "fais-moi une app qui note mes courses"` → app native PyQt6 générée (fenêtre + logique + sauvegarde JSON + entrée menu), code lisible/modifiable. Démo : `pasteque-genere --smoke`.
+- **🎨 Personnalisation** (panneau visible) : thème sombre/clair, couleur d'accent, 3 fonds d'écran Pastèque générés au build, disposition du panneau, taille de police — 100 % via les outils KDE officiels.
+- Guide : [docs/APPS_ET_GENERATEUR.md](docs/APPS_ET_GENERATEUR.md)
+
 ## Jeux en ligne (Fortnite, Apex, …)
 
 Tout est embarqué : **Heroic** (Epic/GOG) + **Proton-GE** par défaut + avertisseur

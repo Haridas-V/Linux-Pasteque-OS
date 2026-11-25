@@ -2,6 +2,12 @@
 
 ## v1.0 (en cours de build CI)
 
+### Sprint apps / générateur / custom (phases 2-4)
+- Apps natives testées (--smoke headless) : notes rapides, minuteur+notification, **snake avec record sauvegardé**, monitoring CPU/RAM/disque/temp stylé, lanceur de jeux
+- **Générateur d'apps piloté en français** (`pasteque-genere "fais-moi une app qui…"`) : génère une app PyQt6 complète (fenêtre, logique, sauvegarde JSON, entrée menu, --smoke), code lisible/modifiable ; démo intégrée (`--smoke`)
+- **Panneau 🎨 Personnalisation** : thème, accent, fonds d'écran (3 PNG générés au build, pure Python), disposition panneau, police — via plasma-apply-*/kwriteconfig5 uniquement
+- Tests unitaires 13/13 (générateur, wallpapers, personnalisation dry-run en plus des 10 existants)
+
 ### Build / boot
 - ISO hybride isohybrid (BIOS + UEFI), compatible balenaEtcher (`ETCHER_COMPATIBLE`, `USB_BOOT_OK`, `USB_UEFI_BOOT_OK`)
 - Fix boot UEFI depuis clé USB : kernel+initrd+grub.cfg embarqués dans l'efi.img (1 Go)

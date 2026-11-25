@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""Panneau de personnalisation Pastèque — thème, couleur d'accent, fond d'écran,
+disposition du panneau, taille de police. Par défaut sobre (Breeze sombre).
+Tout passe par les outils KDE officiels (plasma-apply-*, kwriteconfig5) :
+rien n'est réinventé. --dry-run : affiche les commandes sans les exécuter (tests).
+"""
+import glob
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+DRY = "--dry-run" in sys.argv
+BG_DIR = "/usr/share/backgrounds/pasteque"
+
+
+def run(cmd):
+    print("  $", " ".join(cmd))
+    if not DRY:
+        subprocess.run(cmd, capture_output=True)
+
+
+def dispo(tool):
+    return shutil.which(tool) is not None
+
+
+def appliquer_theme(sombre):
+    laf = "org.kde.breezedark.desktop" if sombre else "org.kde.breeze.desktop"
+    if dispo("plasma-apply-lookandfeel"):
+        run(["plasma-apply-lookandfeel", "--apply", laf])
+    else:  # repli : kwriteconfig5
+        run(["kwriteconfig5", "--file", "kdeglobals", "--group", "KDE",
+             "--key", "LookAndFeelPackage", laf])
+
+
+def appliquer_accent(hexcol):
+    # génère un schéma de couleurs Breeze avec cette accent et l'applique
+    if not hexcol.startswith("#"):
+        hexcol = "#" + hexcol
+    r, g, b = (int(hexcol[i:i + 2], 16) for i in (1, 3, 5))
+    colors = """[ColorEffects:Disabled]
+[ColorEffects:Enabled]
+[Colors:Button]
+BackgroundNormal=%d,%d,%d
+[Colors:Selection]
+BackgroundNormal=%d,%d,%d
+[Colors:Tooltip]
+BackgroundNormal=%d,%d,%d
+[Colors:View]
+BackgroundNormal=35,38,41
+ForegroundNormal=239,240,241
+[Colors:Window]
+BackgroundNormal=49,54,59
+ForegroundNormal=239,240,241
+""" % (r, g, b, r, g, b, r, g, b)
+    with tempfile.NamedTemporaryFile("w", suffix=".colors", delete=False) as f:
+        f.write("[General]\nName=PastequeAccent\n" + colors)
+        path = f.name
+    if dispo("plasma-apply-colorscheme"):
+        run(["plasma-apply-colorscheme", path])
+    else:
+        run(["kwriteconfig5", "--file", "kdeglobals", "--group", "Colors:Button",
+             "--key", "BackgroundNormal", "%d,%d,%d" % (r, g, b)])
+    os.unlink(path)
+
+
+def appliquer_fond(path):
+    if dispo("plasma-apply-wallpaperimage"):
+        run(["plasma-apply-wallpaperimage", path])
+    else:
+        run(["kwriteconfig5", "--file", "plasmashellrc", "--group", "Wallpapers",
+             "--key", "Image", path])
+
+
+def appliquer_panneau(position):
+    # position: "bas" (défaut) ou "gauche"
+    run(["kwriteconfig5", "--file", "plasmashellrc", "--group", "General",
+         "--key", "location", "1" if position == "bas" else "3"])
+    if not DRY:
+        subprocess.run(["plasma-apply-plasmoids" if False else "true"], capture_output=True)
+        # recharge plasmashell pour appliquer
+        subprocess.run(["kquitapp5", "plasmashell"], capture_output=True)
+        subprocess.run(["kstart5", "plasmashell"], capture_output=True)
+
+
+def appliquer_police(pts):
+    run(["kwriteconfig5", "--file", "kdeglobals", "--group", "General",
+         "--key", "font", "Noto Sans,%d,-1,5,50,0,0,0,0,0" % pts])
+
+
+def fonds_dispos():
+    out = sorted(glob.glob(os.path.join(BG_DIR, "*.png"))) + \
+          sorted(glob.glob("/usr/share/backgrounds/*.png")) + \
+          sorted(glob.glob("/usr/share/backgrounds/**/*.jpg", recursive=True))
+    return out
+
+
+def gui():
+    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                                 QLabel, QPushButton, QComboBox, QRadioButton, QButtonGroup,
+                                 QGroupBox, QSpinBox)
+    from PyQt6.QtGui import QColor
+    from PyQt6.QtWidgets import QColorDialog
+
+    class Perso(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle("🎨 Personnalisation — Pastèque Linux")
+            w = QWidget(); self.setCentralWidget(w)
+            v = QVBoxLayout(w)
+            v.addWidget(QLabel("Thème (défaut : sombre et sobre)"))
+            th = QHBoxLayout()
+            self.g_th = QButtonGroup(self)
+            self.rb_dark = QRadioButton("Breeze sombre"); self.rb_dark.setChecked(True)
+            self.rb_light = QRadioButton("Breeze clair")
+            self.g_th.addButton(self.rb_dark); self.g_th.addButton(self.rb_light)
+            th.addWidget(self.rb_dark); th.addWidget(self.rb_light)
+            v.addLayout(th)
+            btn_th = QPushButton("Appliquer le thème")
+            btn_th.clicked.connect(lambda: appliquer_theme(self.rb_dark.isChecked()))
+            v.addWidget(btn_th)
+
+            gb = QGroupBox("Couleur d'accent"); vb = QVBoxLayout(gb)
+            h = QHBoxLayout()
+            self.accent = QPushButton("Choisir une couleur…")
+            self.accent.setStyleSheet("background:#3daee9")
+            self.accent.clicked.connect(self.choisir_couleur)
+            self.hex = "#3daee9"
+            h.addWidget(self.accent)
+            vb.addLayout(h); v.addWidget(gb)
+
+            gb2 = QGroupBox("Fond d'écran"); vb2 = QVBoxLayout(gb2)
+            self.fonds = QComboBox()
+            for f in fonds_dispos():
+                self.fonds.addItem(os.path.basename(f), f)
+            vb2.addWidget(self.fonds)
+            b2 = QPushButton("Appliquer ce fond")
+            b2.clicked.connect(lambda: appliquer_fond(self.fonds.currentData()))
+            vb2.addWidget(b2); v.addWidget(gb2)
+
+            gb3 = QGroupBox("Disposition du panneau"); vb3 = QVBoxLayout(gb3)
+            h3 = QHBoxLayout()
+            self.g_pos = QButtonGroup(self)
+            self.rb_bas = QRadioButton("Panneau en bas"); self.rb_bas.setChecked(True)
+            self.rb_gch = QRadioButton("Panneau à gauche")
+            self.g_pos.addButton(self.rb_bas); self.g_pos.addButton(self.rb_gch)
+            h3.addWidget(self.rb_bas); h3.addWidget(self.rb_gch)
+            vb3.addLayout(h3)
+            b3 = QPushButton("Appliquer la disposition")
+            b3.clicked.connect(lambda: appliquer_panneau("bas" if self.rb_bas.isChecked() else "gauche"))
+            vb3.addWidget(b3); v.addWidget(gb3)
+
+            gb4 = QGroupBox("Taille de police"); vb4 = QHBoxLayout(gb4)
+            self.police = QSpinBox(); self.police.setRange(8, 24); self.police.setValue(10)
+            vb4.addWidget(QLabel("points:")); vb4.addWidget(self.police)
+            b4 = QPushButton("Appliquer")
+            b4.clicked.connect(lambda: appliquer_police(self.police.value()))
+            vb4.addWidget(b4); v.addWidget(gb4)
+            self.resize(520, 560)
+
+        def choisir_couleur(self):
+            c = QColorDialog.getColor(QColor(self.hex), self, "Couleur d'accent")
+            if c.isValid():
+                self.hex = c.name()
+                self.accent.setStyleSheet("background:%s" % self.hex)
+                appliquer_accent(self.hex)
+
+    app = QApplication(sys.argv)
+    m = Perso(); m.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    if "--dry-run" in sys.argv:
+        appliquer_theme(True); appliquer_accent("#e5484d"); appliquer_panneau("bas"); appliquer_police(11)
+        print("dry-run OK")
+        sys.exit(0)
+    sys.exit(gui())

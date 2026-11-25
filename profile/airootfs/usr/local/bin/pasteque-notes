@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Notes rapides Pastèque — liste de notes, autosauvegarde JSON, fenêtre simple.
+--smoke : test headless (QT_QPA_PLATFORM=offscreen), exit 0 si OK."""
+import json
+import os
+import sys
+
+DATA = os.path.expanduser("~/.local/share/pasteque/notes.json")
+
+
+def load():
+    try:
+        return json.load(open(DATA))
+    except Exception:
+        return []
+
+
+def save(notes):
+    os.makedirs(os.path.dirname(DATA), exist_ok=True)
+    json.dump(notes, open(DATA, "w"), ensure_ascii=False, indent=1)
+
+
+def smoke():
+    n = load()
+    n.append({"titre": "test", "texte": "smoke"})
+    save(n)
+    assert any(x["titre"] == "test" for x in load())
+    print("smoke OK (%d notes)" % len(load()))
+    return 0
+
+
+def gui():
+    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                                 QListWidget, QLineEdit, QTextEdit, QPushButton, QInputDialog)
+    from PyQt6.QtCore import Qt
+
+    class Notes(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle("📝 Notes rapides — Pastèque")
+            self.notes = load()
+            w = QWidget(); self.setCentralWidget(w)
+            v = QVBoxLayout(w)
+            h = QHBoxLayout()
+            self.titre = QLineEdit(); self.titre.setPlaceholderText("Titre de la note…")
+            self.add = QPushButton("Ajouter")
+            self.add.clicked.connect(self.ajouter)
+            h.addWidget(self.titre); h.addWidget(self.add)
+            v.addLayout(h)
+            self.liste = QListWidget()
+            self.liste.currentRowChanged.connect(self.voir)
+            v.addWidget(self.liste)
+            self.texte = QTextEdit(); self.texte.setPlaceholderText("Écris ici… (sauvegardé automatiquement)")
+            self.texte.textChanged.connect(self.sauver_texte)
+            v.addWidget(self.texte)
+            h2 = QHBoxLayout()
+            self.suppr = QPushButton("Supprimer la note sélectionnée")
+            self.suppr.clicked.connect(self.supprimer)
+            h2.addWidget(self.suppr); v.addLayout(h2)
+            self.rafraichir()
+            self.resize(640, 520)
+
+        def rafraichir(self):
+            self.liste.clear()
+            for n in self.notes:
+                self.liste.addItem(n["titre"])
+
+        def ajouter(self):
+            t = self.titre.text().strip() or "Note sans titre"
+            self.notes.append({"titre": t, "texte": ""})
+            save(self.notes); self.rafraichir()
+            self.liste.setCurrentRow(len(self.notes) - 1)
+            self.titre.clear()
+
+        def voir(self, i):
+            if 0 <= i < len(self.notes):
+                self.texte.blockSignals(True)
+                self.texte.setPlainText(self.notes[i]["texte"])
+                self.texte.blockSignals(False)
+
+        def sauver_texte(self):
+            i = self.liste.currentRow()
+            if 0 <= i < len(self.notes):
+                self.notes[i]["texte"] = self.texte.toPlainText()
+                save(self.notes)
+
+        def supprimer(self):
+            i = self.liste.currentRow()
+            if 0 <= i < len(self.notes):
+                del self.notes[i]
+                save(self.notes); self.rafraichir(); self.texte.clear()
+
+    app = QApplication(sys.argv)
+    m = Notes(); m.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(smoke() if "--smoke" in sys.argv else gui())

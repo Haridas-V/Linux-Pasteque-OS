@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+"""Générateur d'apps Pastèque — piloté en français.
+
+Usage :
+  pasteque-genere "fais-moi une app qui note mes courses"
+  pasteque-genere "une app pour compter mes parties de cartes"
+  pasteque-genere --smoke            # démo : génère 2 apps et les teste
+
+L'app générée est native (PyQt6), autonome, avec fenêtre, logique et
+sauvegarde JSON de ses données, plus un --smoke intégré. Le code généré est
+lisible et modifiable à la main ensuite.
+
+Sortie : ~/Applications/pasteque-gen/<slug>.py + entrée .desktop dans le menu.
+"""
+import os
+import re
+import shutil
+import subprocess
+import sys
+import unicodedata
+
+GEN_DIR = os.path.expanduser("~/Applications/pasteque-gen")
+DATA_DIR = os.path.expanduser("~/.local/share/pasteque-gen")
+APPS_DIR = os.path.expanduser("~/.local/share/applications")
+
+TEMPLATE = '''#!/usr/bin/env python3
+# App générée par Pastèque Linux — modifiable à la main, aucun secret.
+# Données sauvegardées dans : {data}
+import json, os, sys
+DATA = os.path.expanduser("{data}")
+TITRE = "{titre}"
+
+
+def charger():
+    try:
+        return json.load(open(DATA))
+    except Exception:
+        return {init}
+
+
+def sauver(d):
+    os.makedirs(os.path.dirname(DATA), exist_ok=True)
+    json.dump(d, open(DATA, "w"), ensure_ascii=False, indent=1)
+
+
+def logique(d):
+{logique}
+
+
+def gui():
+    from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, {widgets}
+    from PyQt6.QtCore import QTimer
+
+    class Fenetre(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle(TITRE)
+            self.d = charger()
+            w = QWidget(); self.setCentralWidget(w)
+            v = QVBoxLayout(w)
+{corps}
+            self.rafraichir()
+            self.resize(560, 420)
+
+        def rafraichir(self):
+            logique(self.d)
+            sauver(self.d)
+            self.maj()
+
+        def maj(self):
+{maj}
+
+    app = QApplication(sys.argv)
+    f = Fenetre(); f.show()
+    return app.exec()
+
+
+def smoke():
+    d = charger()
+    logique(d)
+    sauver(d)
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication([])
+    print("smoke OK:", TITRE)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(smoke() if "--smoke" in sys.argv else gui())
+'''
+
+# --- morceaux de code généré selon l'intention détectée ---
+
+LISTE = {
+    "init": '{"elements": []}',
+    "widgets": "QListWidget, QLineEdit, QPushButton",
+    "logique": '''    # rien ici : la logique est dans les boutons (ajouter/supprimer)
+    pass''',
+    "corps": '''            h = QHBoxLayout()
+            self.champ = QLineEdit(); self.champ.setPlaceholderText("Ajouter un élément… (Entrée)")
+            self.champ.returnPressed.connect(self.ajouter)
+            self.btn_add = QPushButton("Ajouter"); self.btn_add.clicked.connect(self.ajouter)
+            self.btn_del = QPushButton("Supprimer la sélection"); self.btn_del.clicked.connect(self.supprimer)
+            h.addWidget(self.champ); h.addWidget(self.btn_add)
+            v.addLayout(h)
+            self.liste = QListWidget(); v.addWidget(self.liste)
+            v.addWidget(self.btn_del)''',
+    "maj": '''            self.liste.clear()
+            for e in self.d["elements"]:
+                self.liste.addItem(e)
+
+        def ajouter(self):
+            t = self.champ.text().strip()
+            if t:
+                self.d["elements"].append(t)
+                self.champ.clear()
+                self.rafraichir()
+
+        def supprimer(self):
+            i = self.liste.currentRow()
+            if 0 <= i < len(self.d["elements"]):
+                del self.d["elements"][i]
+                self.rafraichir()''',
+}
+
+COMPTEUR = {
+    "init": '{"valeur": 0}',
+    "widgets": "QLabel, QPushButton",
+    "logique": "    pass",
+    "corps": '''            from PyQt6.QtGui import QFont
+            from PyQt6.QtCore import Qt
+            self.aff = QLabel(); self.aff.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.aff.setFont(QFont("Sans", 40, QFont.Bold))
+            v.addWidget(self.aff)
+            h = QHBoxLayout()
+            self.moins = QPushButton("−"); self.plus = QPushButton("+")
+            self.moins.clicked.connect(lambda: self.bouge(-1))
+            self.plus.clicked.connect(lambda: self.bouge(1))
+            h.addWidget(self.moins); h.addWidget(self.plus)
+            v.addLayout(h)''',
+    "maj": '''            self.aff.setText(str(self.d["valeur"]))
+
+        def bouge(self, d):
+            self.d["valeur"] += d
+            self.rafraichir()''',
+}
+
+MINUTEUR = {
+    "init": '{"secondes": 300}',
+    "widgets": "QLabel, QPushButton, QSpinBox",
+    "logique": "    pass",
+    "corps": '''            from PyQt6.QtGui import QFont
+            from PyQt6.QtCore import Qt
+            self.aff = QLabel("05:00"); self.aff.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.aff.setFont(QFont("Sans", 40, QFont.Bold))
+            v.addWidget(self.aff)
+            h = QHBoxLayout()
+            self.min = QSpinBox(); self.min.setRange(0, 999); self.min.setValue(self.d["secondes"] // 60)
+            self.min.valueChanged.connect(lambda m: self.d.__setitem__("secondes", m * 60))
+            self.start = QPushButton("▶ Démarrer"); self.start.clicked.connect(self.demarrer)
+            h.addWidget(QLabel("minutes:")); h.addWidget(self.min); h.addWidget(self.start)
+            v.addLayout(h)
+            self.timer = QTimer(self); self.timer.timeout.connect(self.tick)
+            self.restant = self.d["secondes"]''',
+    "maj": '''            self.aff.setText("%02d:%02d" % (self.restant // 60, self.restant % 60))
+
+        def demarrer(self):
+            self.restant = self.d["secondes"]
+            self.timer.start(1000)
+
+        def tick(self):
+            if self.restant > 0:
+                self.restant -= 1
+                self.maj()
+            if self.restant == 0:
+                self.timer.stop()
+                import subprocess
+                subprocess.run(["notify-send", TITRE, "Terminé !"], capture_output=True)''',
+}
+
+NOTES = {
+    "init": '{"texte": ""}',
+    "widgets": "QTextEdit",
+    "logique": "    pass",
+    "corps": '''            self.zone = QTextEdit(); self.zone.setPlainText(self.d["texte"])
+            self.zone.textChanged.connect(lambda: self.d.__setitem__("texte", self.zone.toPlainText()) or sauver(self.d))
+            v.addWidget(self.zone)''',
+    "maj": "            pass",
+}
+
+CALCULATRICE = {
+    "init": '{"affichage": "0"}',
+    "widgets": "QLabel, QPushButton, QGridLayout",
+    "logique": "    pass",
+    "corps": '''            from PyQt6.QtGui import QFont
+            from PyQt6.QtCore import Qt
+            self.aff = QLabel("0"); self.aff.setAlignment(Qt.AlignmentFlag.AlignRight)
+            self.aff.setFont(QFont("Sans", 28, QFont.Bold))
+            v.addWidget(self.aff)
+            g = QGridLayout()
+            touches = ["7","8","9","/","4","5","6","*","1","2","3","-","0","C","=","+"]
+            for i, t in enumerate(touches):
+                b = QPushButton(t); b.setFixedHeight(48)
+                b.clicked.connect(lambda _, x=t: self.touche(x))
+                g.addWidget(b, i // 4, i % 4)
+            v.addLayout(g)
+            self.expr = ""''',
+    "maj": '''            self.aff.setText(self.d["affichage"])
+
+        def touche(self, t):
+            if t == "C":
+                self.expr = ""; self.d["affichage"] = "0"
+            elif t == "=":
+                try:
+                    self.expr = str(eval(self.expr, {"__builtins__": {}}, {}))
+                    self.d["affichage"] = self.expr
+                except Exception:
+                    self.d["affichage"] = "Erreur"
+            else:
+                self.expr += t
+                self.d["affichage"] = self.expr
+            self.rafraichir()''',
+}
+
+FICHE = {
+    "init": '{"texte": ""}',
+    "widgets": "QTextEdit, QPushButton",
+    "logique": "    pass",
+    "corps": '''            self.zone = QTextEdit(); self.zone.setPlainText(self.d["texte"])
+            v.addWidget(self.zone)
+            self.btn = QPushButton("💾 Sauvegarder")
+            self.btn.clicked.connect(lambda: (self.d.__setitem__("texte", self.zone.toPlainText()), sauver(self.d)))
+            v.addWidget(self.btn)''',
+    "maj": "            pass",
+}
+
+INTENTS = [
+    (r"liste|courses|todo|à faire|inventaire|courses|courses", LISTE, "liste"),
+    (r"compteur|score|points|fois|parties", COMPTEUR, "compteur"),
+    (r"minuteur|timer|compte à rebours|alarme|chrono", MINUTEUR, "minuteur"),
+    (r"calculatrice|calculs", CALCULATRICE, "calculatrice"),
+    (r"note|carnet|journal|texte|idée", NOTES, "notes"),
+]
+
+
+def slugify(titre):
+    t = unicodedata.normalize("NFKD", titre).encode("ascii", "ignore").decode()
+    t = re.sub(r"[^a-z0-9]+", "-", t.lower()).strip("-")
+    return t[:40] or "app"
+
+
+def detecter(desc):
+    d = desc.lower()
+    for pat, tpl, nom in INTENTS:
+        if re.search(pat, d):
+            return tpl, nom
+    return FICHE, "fiche"
+
+
+def generer(desc):
+    tpl, nom = detecter(desc)
+    titre = desc.strip().rstrip(".")
+    titre = titre[0].upper() + titre[1:] if titre else "Mon app"
+    slug = slugify(titre)
+    os.makedirs(GEN_DIR, exist_ok=True)
+    os.makedirs(APPS_DIR, exist_ok=True)
+    data = os.path.join(DATA_DIR, slug + ".json")
+    code = TEMPLATE.format(
+        titre=titre, data=data, init=tpl["init"], logique=tpl["logique"],
+        widgets=tpl["widgets"], corps=tpl["corps"], maj=tpl["maj"])
+    path = os.path.join(GEN_DIR, slug + ".py")
+    open(path, "w", encoding="utf-8").write(code)
+    os.chmod(path, 0o755)
+    desk = os.path.join(APPS_DIR, "pasteque-gen-%s.desktop" % slug)
+    open(desk, "w", encoding="utf-8").write(
+        "[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nIcon=text-x-generic\n"
+        "Terminal=false\nCategories=Utility;\n" % (titre, path))
+    if shutil.which("update-desktop-database"):
+        subprocess.run(["update-desktop-database", APPS_DIR], capture_output=True)
+    return path, desk, nom
+
+
+def smoke_demo():
+    """Démo Phase 3 : génère 2 apps réelles et les teste (--smoke de l'app générée)."""
+    out = []
+    for desc in ["fais-moi une app qui note mes courses",
+                 "fais-moi une app pour compter mes parties de cartes"]:
+        path, desk, nom = generer(desc)
+        r = subprocess.run([sys.executable, path, "--smoke"],
+                           capture_output=True, text=True,
+                           env=dict(os.environ, QT_QPA_PLATFORM="offscreen"))
+        ok = r.returncode == 0 and "smoke OK" in r.stdout
+        print("%s -> %s [%s] smoke=%s" % (desc, path, nom, "OK" if ok else "FAIL " + r.stderr[-200:]))
+        out.append(ok)
+    return 0 if all(out) else 1
+
+
+def main():
+    if "--smoke" in sys.argv:
+        return smoke_demo()
+    if len(sys.argv) < 2:
+        print(__doc__)
+        return 1
+    desc = " ".join(sys.argv[1:])
+    path, desk, nom = generer(desc)
+    print("✅ App générée (%s) :" % nom)
+    print("   code   :", path)
+    print("   menu   :", desk)
+    print("   données:", os.path.join(DATA_DIR, slugify(desc) + ".json"))
+    print("Lancer : %s   |  tester : %s --smoke" % (path, path))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

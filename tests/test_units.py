@@ -198,6 +198,46 @@ def test_packages_no_comments_break():
             assert " " not in line or line.startswith("#"), "nom de paquet avec espace: " + line
 
 
+def test_generateur_fr():
+    gen = os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-genere")
+    with tempfile.TemporaryDirectory() as h:
+        env = dict(os.environ, HOME=h)
+        for desc in ["fais-moi une app qui note mes courses",
+                     "une app pour compter mes parties de cartes"]:
+            r = subprocess.run([sys.executable, gen, desc], capture_output=True, text=True, env=env)
+            assert r.returncode == 0, r.stderr
+        apps = glob.glob(os.path.join(h, "Applications/pasteque-gen/*.py"))
+        desks = glob.glob(os.path.join(h, ".local/share/applications/pasteque-gen-*.desktop"))
+        assert len(apps) == 2 and len(desks) == 2, (apps, desks)
+        for a in apps:
+            py_compile.compile(a, doraise=True)
+            head = open(a).read()
+            assert "--smoke" in head and "TITRE" in head
+
+
+def test_wallpapers():
+    import struct
+    with tempfile.TemporaryDirectory() as td:
+        r = subprocess.run([sys.executable, os.path.join(REPO, "tools/gen_wallpapers.py"), td],
+                           capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        pngs = glob.glob(os.path.join(td, "*.png"))
+        assert len(pngs) == 3
+        for p in pngs:
+            d = open(p, "rb").read()
+            assert d[:8] == b"\x89PNG\r\n\x1a\n"
+            w, h = struct.unpack(">II", d[16:24])
+            assert (w, h) == (1920, 1080)
+
+
+def test_personnalise_dryrun():
+    r = subprocess.run([sys.executable,
+                        os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-personnalise"),
+                        "--dry-run"], capture_output=True, text=True)
+    assert r.returncode == 0 and "dry-run OK" in r.stdout, r.stdout + r.stderr
+    assert "kwriteconfig5" in r.stdout or "plasma-apply" in r.stdout
+
+
 if __name__ == "__main__":
     t("py_compile tous les scripts", compile_all)
     t("bash -n tous les scripts shell", bash_n_all)
@@ -209,6 +249,9 @@ if __name__ == "__main__":
     t("config Calamares coherente", test_calamares_config)
     t("base anti-cheat valide", test_anticheat_db)
     t("packages.x86_64 sans paquets mal formes", test_packages_no_comments_break)
+    t("generateur d'apps FR (2 apps generees + compilees)", test_generateur_fr)
+    t("fonds d'ecran PNG valides (1920x1080)", test_wallpapers)
+    t("panneau personnalisation --dry-run", test_personnalise_dryrun)
     print()
     if FAIL:
         print("ECHECS:", FAIL)
