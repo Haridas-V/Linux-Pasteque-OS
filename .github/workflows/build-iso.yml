@@ -43,6 +43,12 @@ jobs:
               sha256sum "$ISO" > "$ISO.sha256"; echo "[sign] pas de cle GPG secret -> sha256 seul"
             fi
           '
+      - name: Upload logs de tests (artifact léger)
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-logs
+          path: tests/artifacts/**
+
       - name: Upload ISO (artifact)
         uses: actions/upload-artifact@v6
         with:

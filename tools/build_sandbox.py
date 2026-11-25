@@ -456,6 +456,9 @@ def step_iso():
          "-o", os.path.join(efiwork, "EFI/BOOT/BOOTX64.EFI"),
          "-c", early,
          "-p", "(cd0)/boot/grub"] + modules)
+    # signe le grub EFI (l'etape secureboot a pu tourner avant la creation d'efiwork)
+    if os.path.exists(os.path.join(WORK, "sb", "sb.key")):
+        run([sys.executable, os.path.join(TOOLS, "sb_sign.py"), "--efi-only"], check=False)
     # Secure Boot : si le shim MS-signe est present, BOOTX64.EFI = shim (1er etage),
     # grub signe devient grubx64.efi (2e etage verifie contre MOK), mmx64.efi = MokManager
     shim = os.path.join(WORK, "shim", "shimx64.efi")

@@ -143,13 +143,14 @@ def sign_all_modules(key, crt):
 
 def main():
     skip_modules = "--skip-modules" in sys.argv
+    efi_only = "--efi-only" in sys.argv
     ensure_tools()
     key, crt = ensure_key()
     if SBSIGN:
         sign_efi_and_kernels(key, crt)
     else:
         print("[sb] sbsign absent -> signature EFI/noyaux sautee", flush=True)
-    if not skip_modules:
+    if not skip_modules and not efi_only:
         sign_all_modules(key, crt)
     print("[sb] OK", flush=True)
 
