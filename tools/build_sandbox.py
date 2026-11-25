@@ -534,12 +534,15 @@ def step_iso():
     verify_initramfs(initrd_src, kv)   # coherence noyau <-> initramfs, sinon boot sans pilotes
     shutil.copy2(initrd_src, os.path.join(iso, "boot/x86_64/initramfs-linux.img"))
     # noyau LTS de secours dans l'ISO aussi
+    have_lts = False
     if kvl:
         lts_kernel = os.path.join(ROOTFS, "usr/lib/modules", kvl, "vmlinuz")
         lts_initrd = os.path.join(ROOTFS, "boot/initramfs-lts.img")
         if os.path.exists(lts_kernel) and os.path.exists(lts_initrd):
+            verify_initramfs(lts_initrd, kvl)
             shutil.copy2(lts_kernel, os.path.join(iso, "boot/x86_64/vmlinuz-lts"))
             shutil.copy2(lts_initrd, os.path.join(iso, "boot/x86_64/initramfs-lts.img"))
+            have_lts = True
 
     # restaure le helper setuid de dbus (illisible sinon depuis le cache pacman)
     import tarfile as _tf
