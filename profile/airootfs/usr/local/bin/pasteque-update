@@ -79,6 +79,12 @@ def main():
         os.makedirs("/var/lib/pasteque", exist_ok=True)
         with open("/var/lib/pasteque/last-update", "w") as f:
             f.write(time.strftime("%Y-%m-%d %H:%M:%S") + "\n")
+        # historique des mises à jour (consultable dans le hub)
+        try:
+            with open("/var/log/pasteque-updates.log", "a") as f:
+                f.write("%s  update OK  snapshots=%s,%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), pre, post))
+        except OSError:
+            pass
     except OSError:
         pass
 

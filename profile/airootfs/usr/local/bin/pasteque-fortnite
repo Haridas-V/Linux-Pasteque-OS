@@ -181,6 +181,24 @@ def main():
         ok, msg = setup()
         print(("✅ " if ok else "❌ ") + msg)
         return 0 if ok else 1
+    if a[0] == "diagnose":
+        st = status()
+        print("== Diagnostic Fortnite / Linux ==")
+        print("Heroic embarqué :", "OK" if st["heroic"] else "NON")
+        print("Proton-GE embarqué :", st["proton_ge"] or "NON")
+        print("Anti-cheat EAC (base areweanticheatyet) :", "OK compatible Proton" if st["anticheat_ok"] else "KO")
+        print("Fortnite installé (cache Heroic) :", "oui" if st["installe"] else "non")
+        # EAC réellement présent dans l'installation ?
+        eac = glob.glob(os.path.join(HOME, "Games/Heroic/**/EasyAntiCheat*", ), recursive=True) + \
+              glob.glob(os.path.join(HOME, ".wine/**/EasyAntiCheat*"), recursive=True)
+        print("Dossier EAC trouvé dans l'installation :", "oui" if eac else "non (installer d'abord via Heroic)")
+        # réseau vers les serveurs Epic (joignabilité seulement, PAS une preuve de connexion au jeu)
+        r = subprocess.run(["curl", "-sI", "--max-time", "8", "https://api.epicgames.dev"],
+                           capture_output=True, text=True)
+        print("Joignabilité api.epicgames.dev :", "OK (HTTP %s)" % (r.stdout.split()[1] if r.stdout else "?") if r.returncode == 0 else "NON (offline ?)")
+        print("NOTE honnête : la connexion réelle aux serveurs de jeu (login Epic + matchmaking)")
+        print("ne peut être vérifiée que sur machine réelle avec un compte — voir docs/POINTS_A_VALIDER_EN_MATERIEL.md")
+        return 0
     if a[0] == "status":
         print(json.dumps(status(), indent=1))
         return 0

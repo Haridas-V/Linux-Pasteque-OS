@@ -34,6 +34,18 @@ def rapport():
         L.append("\n## SMART (si dispo)\n```\n%s\n```" % sh(["smartctl", "-H", "/dev/nvme0n1"])[:400] or sh(["smartctl", "-H", "/dev/sda"])[:400])
     L.append("\n## Erreurs journal 24h\n```\n%s\n```" % sh(["journalctl", "-p", "3", "--since", "24 hours ago", "--no-pager"])[-1500:])
     L.append("\n## Unités en échec\n```\n%s\n```" % sh(["systemctl", "--failed", "--no-legend"]))
+    try:
+        import glob as _g
+        ec = []
+        for c in sorted(_g.glob("/sys/class/drm/*/status")):
+            conn = c.split("/")[-2]
+            st = open(c).read().strip()
+            mp = c.replace("status", "modes")
+            modes = open(mp).read().split()[:5] if os.path.exists(mp) else []
+            ec.append("%s: %s  modes: %s" % (conn, st, ", ".join(modes) if modes else "?"))
+        L.append("\n## Écrans (connecteurs DRM — modes réels du matériel)\n```\n%s\n```" % ("\n".join(ec) or "aucun"))
+    except Exception as e:
+        L.append("\n## Écrans\n(erreur: %s)" % e)
     L.append("\n## Réseau\n```\n%s\n```" % sh(["ip", "-br", "addr"])[:600])
     L.append("\n## Pare-feu\n```\n%s\n```" % sh(["firewall-cmd", "--state"]) + " " + sh(["firewall-cmd", "--list-all"])[:400])
     if shutil.which("mokutil"):
