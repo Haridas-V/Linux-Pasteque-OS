@@ -16,12 +16,12 @@ def test_config():
     a = main.agent
     assert a.name == "pasteque-orchestrateur", a.name
     subs = {s.name for s in a.subagents}
-    attendu = {"builder-iso", "testeur-vm", "redacteur-docs", "revieweur-pr"}
+    attendu = {"builder-iso", "testeur-vm", "redacteur-docs", "revieweur-pr", "auditeur-qa"}
     assert attendu <= subs, "sous-agents manquants: %s" % (attendu - subs)
     for s in a.subagents:
         assert s.instructions and s.description, s.name
         assert s.builtins.subagents is False, "un sous-agent ne doit pas spawner d'autres sous-agents"
-    print("PASS config: 4 sous-agents déclarés, builtins(subagents=False) OK")
+    print("PASS config: 5 sous-agents déclarés, builtins(subagents=False) OK")
 
 
 async def test_scripted_turn():

@@ -85,6 +85,22 @@ agent = agents.Agent(
             tools=[pr_report, repo_tree, read_repo_file],
             builtins=agents.Builtins(subagents=False),
         ),
+        agents.Subagent(
+            name="auditeur-qa",
+            description="Audit croisé indépendant : exécute les tests unitaires, vérifie la cohérence code/doc/CI, détecte dette technique et faux positifs.",
+            instructions=(
+                "Tu es l'auditeur QA indépendant de Pastèque Linux (tu ne valides pas toi-même "
+                "ton propre travail). Mission : (1) exécute `python3 tests/test_units.py` via "
+                "run_build et rapporte PASS/FAIL ; (2) vérifie avec repo_tree()/read_repo_file "
+                "que chaque script pasteque-* embarqué a un test (--smoke ou check live) ; "
+                "(3) vérifie qu'aucun test n'est déclaré sans être exécuté (docs vs CI) ; "
+                "(4) cherche secrets/clés privées commitées (work/sb, *.key, *.pem) ; "
+                "(5) rapporte une liste d'actions classées critique/important/mineur. "
+                "Ne modifie rien, rapporte seulement."
+            ),
+            tools=[run_build, repo_tree, read_repo_file],
+            builtins=agents.Builtins(subagents=False),
+        ),
     ],
 )
 
