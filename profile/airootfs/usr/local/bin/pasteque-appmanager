@@ -300,7 +300,28 @@ class SettingsTab(QWidget):
         self.upd_log = QPlainTextEdit(); self.upd_log.setReadOnly(True); self.upd_log.setMaximumHeight(140)
         self.layout().addWidget(self.upd_log)
         self.refresh_update_status()
+        # nettoyage des dépendances orphelines (jamais les deps encore utilisées)
+        row2 = QHBoxLayout()
+        self.btn_orphans = QPushButton("🧹 Voir/nettoyer les dépendances orphelines (pacman -Qtd)")
+        self.btn_orphans.clicked.connect(self.orphans)
+        row2.addWidget(self.btn_orphans)
+        self.layout().addLayout(row2)
         self.layout().addStretch(1)
+
+    def orphans(self):
+        r = run(["pacman", "-Qtdq"])
+        orph = [l for l in r.stdout.splitlines() if l.strip()]
+        if not orph:
+            QMessageBox.information(self, "Orphelins", "Aucune dépendance orpheline. ✔")
+            return
+        msg = "Dépendances orphelines (installées automatiquement, plus utilisées) :\n\n" + "\n".join(orph[:30])
+        if len(orph) > 30:
+            msg += "\n… (%d au total)" % len(orph)
+        msg += "\n\nLes supprimer ? (jamais une dépendance encore utilisée par un autre paquet)"
+        if QMessageBox.question(self, "Nettoyage", msg) == QMessageBox.Yes:
+            r = run(["pkexec", "pacman", "-Rns", "--noconfirm"] + orph)
+            QMessageBox.information(self, "Nettoyage", "Terminé." if r.returncode == 0 else "Échec: " + (r.stderr or "")[-300:])
+
 
     def refresh_update_status(self):
         try:
