@@ -26,6 +26,7 @@ EXTRAS = [
     (["Heroic-Games-Launcher/HeroicGamesLauncher", "HeroicGamesLauncher/HeroicGamesLauncher"],
      "Heroic-*.AppImage", "heroic"),
     (["IsmaelMartinez/teams-for-linux"], "teams-for-linux-*.AppImage", "teams"),
+    (["Davidotek/ProtonUp-Qt"], "ProtonUp-Qt-*-x86_64.AppImage", "protonup-qt"),  # gestionnaire de versions Proton-GE/Wine
 ]
 
 

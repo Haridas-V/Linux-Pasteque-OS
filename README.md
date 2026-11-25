@@ -85,6 +85,16 @@ docs/                     # ARCHITECTURE.md, MAINTENANCE.md, POINTS_A_VALIDER_EN
 .github/workflows/        # CI : build de l'ISO en artifact
 ```
 
+## 🍉 Gestionnaire Pastèque (hub central, modulaire)
+
+Une app centrale lance tout : **🍉 Gestionnaire Pastèque** (`pasteque-hub`) — vue d'ensemble,
+**mises à jour manuelles** (liste + « Installer maintenant », snapshot Btrfs auto — `AUTO_UPDATE=0` par défaut),
+applications (recherche globale pacman+Flatpak), jeux (+ **profils par jeu** : env/GameMode/nice),
+🍉 Fortnite 1-clic, ⚡ priorités des processus, 📊 monitoring, 🧪 **benchmark** (résultats mesurés + historique JSON exportable),
+🎨 personnalisation (thèmes, accent, fonds, panneau, police + **profils d'apparence sauvegardés**), 🛡️ **pare-feu graphique**,
+🔍 **diagnostic système** (rapport exportable), corbeille/sauvegardes, 🪄 générateur d'apps FR.
+Démarrage Pastèque avec icône pastèque (thème GRUB custom).
+
 ## Fonctionnalités embarquées (ISO ~6 Go, clé de 30 Go OK)
 
 - **Mise à jour système en GUI** : bouton « Mettre à jour maintenant » dans le gestionnaire

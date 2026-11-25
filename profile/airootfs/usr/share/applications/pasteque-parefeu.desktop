@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=🛡️ Pare-feu
+Exec=/usr/local/bin/pasteque-parefeu
+Icon=Settings
+Terminal=false
+Categories=preferences-system-network;

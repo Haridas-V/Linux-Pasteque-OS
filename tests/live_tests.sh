@@ -120,6 +120,12 @@ t generateur-demo bash -c "export QT_QPA_PLATFORM=offscreen; HOME=/tmp/fakehome3
 t personnalise-dryrun /usr/local/bin/pasteque-personnalise --dry-run
 t wallpapers test -n "$(ls /usr/share/backgrounds/pasteque/*.png 2>/dev/null)"
 t fortnite-app bash -c "test -x /usr/local/bin/heroic && /usr/local/bin/pasteque-fortnite --smoke | grep -q 'smoke OK'"
+t hub-smoke /usr/local/bin/pasteque-hub --smoke
+t priorites-smoke /usr/local/bin/pasteque-priorites --smoke
+t parefeu-smoke /usr/local/bin/pasteque-parefeu --smoke
+t diagnostic-smoke /usr/local/bin/pasteque-diagnostic --smoke
+t grub-theme test -f /usr/share/grub/themes/pasteque/theme.txt -a -f /usr/share/pasteque/logo.png
+t gamescope-test pacman -Q gamescope smartmontools >/dev/null 2>&1
 t games-launcher bash -c "mkdir -p /tmp/fakehome2 && HOME=/tmp/fakehome2 /usr/local/bin/pasteque-games --list | grep -q 'total: 0 jeux'"
 t secureboot-mok test -s /usr/share/pasteque/mok/Pasteque.der -a -x /usr/local/bin/pasteque-secureboot -a -x /usr/bin/mokutil
 t anticheat-fortnite python3 -c "import json; d=json.load(open('/usr/share/pasteque/anticheat-db.json')); assert d['games']['fortnite']['status']=='OK'; print('fortnite OK')"

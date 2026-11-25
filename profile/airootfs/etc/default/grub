@@ -6,3 +6,4 @@ GRUB_CMDLINE_LINUX=""
 GRUB_ENABLE_CRYPTODISK=y   # necessaire si chiffrement LUKS choisi dans Calamares
 GRUB_DISABLE_OS_PROBER=false  # dual-boot : lister les autres OS dans le menu GRUB
 GRUB_DISABLE_RECOVERY=true
+GRUB_THEME=/usr/share/grub/themes/pasteque/theme.txt   # démarrage Pastèque (icône pastèque)

@@ -1,5 +1,18 @@
 # CHANGELOG — Pastèque Linux
 
+## v1.0 — évolution majeure (mission 72h)
+
+- **Gestionnaire Pastèque central** (`pasteque-hub`, 13 modules) ; **mises à jour 100 % manuelles** par défaut (liste consultable, install au clic, snapshot auto)
+- **Profils par jeu** (pasteque-games : env, GameMode, MangoHud, nice → appliqués au lancement)
+- ⚡ **Gestionnaire de priorités** (`pasteque-priorites`, nice par processus, jamais de RT arbitraire)
+- 🧪 **Benchmark** (`pasteque-benchmark` : CPU/RAM/disque mesurés, GPU vkcube si dispo, historique JSON + export)
+- 🛡️ **Pare-feu graphique** (`pasteque-parefeu`, firewalld) ; 🔍 **Diagnostic** (`pasteque-diagnostic`, rapport .md exportable, SMART)
+- 🎨 Personnalisation : **profils d'apparence** (Sober/Gaming/Clair/Minimal + sauvegarde perso JSON)
+- 🍉 **Thème GRUB Pastèque** (logo pastèque généré en pure Python au build)
+- 🎮 Gaming : **gamescope** + **ProtonUp-Qt embarqué** (hors-ligne) ; Bottles via Flatpak (doc)
+- App manager : **recherche globale pacman + Flatpak** avec sources
+- 18 tests unitaires (tous PASS) + nouveaux checks live
+
 ## v1.0 (en cours de build CI)
 
 ### Sprint apps / générateur / custom (phases 2-4)

@@ -61,6 +61,51 @@ class AppsTab(QWidget):
     def __init__(self):
         super().__init__()
         self.setLayout(QVBoxLayout())
+        # recherche globale multi-sources (pacman + flatpak)
+        from PyQt6.QtWidgets import QLineEdit
+        row = QHBoxLayout()
+        self.search = QLineEdit(); self.search.setPlaceholderText("Rechercher une application (pacman + Flatpak)…")
+        self.search.returnPressed.connect(self.do_search)
+        sb = QPushButton("🔍 Rechercher")
+        sb.clicked.connect(self.do_search)
+        row.addWidget(self.search); row.addWidget(sb)
+        self.layout().addLayout(row)
+        self.results = QTableWidget(0, 3)
+        self.results.setHorizontalHeaderLabels(["Nom", "Source", "Description"])
+        self.results.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.layout().addWidget(self.results)
+
+    def do_search(self):
+        q = self.search.text().strip()
+        if not q:
+            return
+        self.results.setRowCount(0)
+        n = 0
+        r = run(["pacman", "-Ss", q])
+        for line in r.stdout.splitlines():
+            if "/" in line and not line.startswith(" "):
+                parts = line.split("/", 1)
+                desc = parts[1].splitlines()[0]
+                self.results.insertRow(n)
+                self.results.setItem(n, 0, QTableWidgetItem(parts[0].split()[0]))
+                self.results.setItem(n, 1, QTableWidgetItem("pacman (" + parts[0].split()[1] + ")"))
+                self.results.setItem(n, 2, QTableWidgetItem(desc))
+                n += 1
+        r = run(["flatpak", "search", "--columns=name,application,description", q])
+        for line in r.stdout.splitlines()[1:]:
+            f = line.split("	")
+            if len(f) >= 3:
+                self.results.insertRow(n)
+                self.results.setItem(n, 0, QTableWidgetItem(f[0]))
+                self.results.setItem(n, 1, QTableWidgetItem("Flatpak"))
+                self.results.setItem(n, 2, QTableWidgetItem(f[2]))
+                n += 1
+        if n == 0:
+            self.results.insertRow(0)
+            self.results.setItem(0, 0, QTableWidgetItem("(aucun résultat)"))
+            self.results.setItem(0, 1, QTableWidgetItem(""))
+            self.results.setItem(0, 2, QTableWidgetItem("Essayez un autre mot-clé."))
+
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Application", "Type", "Commande de retrait"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)

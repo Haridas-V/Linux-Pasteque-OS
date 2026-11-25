@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 import py_compile
+import re
 import shutil
 import subprocess
 import sys
@@ -250,6 +251,52 @@ def test_fortnite_app():
     assert st["anticheat_ok"] is True
 
 
+def test_new_apps_smoke():
+    import shutil
+    apps = {
+        "pasteque-hub": [],
+        "pasteque-priorites": [],
+        "pasteque-benchmark": ["--quick-ok"],  # le smoke fait déjà un mini-bench
+        "pasteque-parefeu": [],
+        "pasteque-diagnostic": [],
+    }
+    for name in apps:
+        path = os.path.join(REPO, "profile/airootfs/usr/local/bin/" + name)
+        assert os.path.exists(path), name
+        r = subprocess.run([sys.executable, path, "--smoke"], capture_output=True, text=True, timeout=300)
+        assert r.returncode == 0 and "smoke OK" in r.stdout, name + ": " + r.stdout[-200:] + r.stderr[-200:]
+
+
+def test_games_profiles():
+    from importlib.machinery import SourceFileLoader
+    loader = SourceFileLoader("pg", os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-games"))
+    spec = importlib.util.spec_from_loader("pg", loader)
+    m = importlib.util.module_from_spec(spec)
+    loader.exec_module(m)
+    import tempfile
+    with tempfile.TemporaryDirectory() as h:
+        m.PROFILES = os.path.join(h, "profiles")
+        m.save_profile("730", {"env": {"DXVK_HUD": "1"}, "gamemode": True, "nice": 5})
+        p = m.load_profile("730")
+        assert p["env"]["DXVK_HUD"] == "1" and p["gamemode"] and p["nice"] == 5
+        assert m.load_profile("999") == {}
+
+
+def test_grub_theme_and_logo():
+    base = os.path.join(REPO, "profile/airootfs")
+    assert os.path.exists(os.path.join(base, "usr/share/grub/themes/pasteque/theme.txt"))
+    d = open(os.path.join(base, "usr/share/pasteque/logo.png"), "rb").read()
+    assert d[:8] == b"\x89PNG\r\n\x1a\n"
+    grub = open(os.path.join(base, "etc/default/grub")).read()
+    assert "GRUB_THEME=/usr/share/grub/themes/pasteque/theme.txt" in grub
+    assert "GRUB_DISABLE_OS_PROBER=false" in grub and "GRUB_ENABLE_CRYPTODISK=y" in grub
+
+
+def test_conf_manual_updates_default():
+    c = open(os.path.join(REPO, "profile/airootfs/etc/pasteque/pasteque.conf")).read()
+    assert re.search(r"(?m)^AUTO_UPDATE=0", c), "les mises à jour doivent être manuelles par défaut"
+
+
 if __name__ == "__main__":
     t("py_compile tous les scripts", compile_all)
     t("bash -n tous les scripts shell", bash_n_all)
@@ -265,6 +312,10 @@ if __name__ == "__main__":
     t("fonds d'ecran PNG valides (1920x1080)", test_wallpapers)
     t("panneau personnalisation --dry-run", test_personnalise_dryrun)
     t("app Fortnite 1-clic (smoke + status)", test_fortnite_app)
+    t("nouveaux outils --smoke (hub, priorites, benchmark, parefeu, diagnostic)", test_new_apps_smoke)
+    t("profils par jeu (pasteque-games)", test_games_profiles)
+    t("thème GRUB Pastèque + logo PNG + conf grub", test_grub_theme_and_logo)
+    t("mises à jour manuelles par défaut (AUTO_UPDATE=0)", test_conf_manual_updates_default)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

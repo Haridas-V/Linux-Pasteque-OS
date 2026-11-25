@@ -1,0 +1,15 @@
+# Thème GRUB Pastèque Linux — sobre, icône pastèque, démarrage rapide (pas d'animation lourde)
+title-text: "Pastèque Linux"
+title-color: "#46a758"
+title-font: "Sans Bold 20"
+desktop-image: "logo.png"
+desktop-color: "#0f1418"
+message-color: "#e6e6e6"
+terminal-font: "Sans 12"
++ label { top = 8; color = "#46a758"; text = "Pastèque Linux — édition No Frustration" }
++ boot_menu {
+    left = 10%; top = 30%; width = 80%; height = 40%;
+    item_color = "#e6e6e6"; selected_item_color = "#ffffff";
+    item_pixmap_style: "selection/item_*.png"
+    selected_item_pixmap_style: "selection/item_selected_*.png"
+}

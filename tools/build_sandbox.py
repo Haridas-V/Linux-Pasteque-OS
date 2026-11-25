@@ -169,6 +169,7 @@ def step_install():
         pkgs = [p for p in pkgs if p not in missing]
     else:
         raise RuntimeError("pacman echoue apres 3 essais")
+    run([sys.executable, os.path.join(TOOLS, "gen_logo.py")], check=False)
     # fonds d'ecran Pasteque (PNG generes en pure python, aucune dependance)
     run([sys.executable, os.path.join(TOOLS, "gen_wallpapers.py"),
          os.path.join(PROFILE, "airootfs/usr/share/backgrounds/pasteque")], check=False)

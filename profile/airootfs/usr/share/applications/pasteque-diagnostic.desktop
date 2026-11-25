@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=🔍 Diagnostic
+Exec=/usr/local/bin/pasteque-diagnostic
+Icon=System
+Terminal=false
+Categories=utilities-system-monitor;

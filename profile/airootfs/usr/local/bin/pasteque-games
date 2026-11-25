@@ -58,11 +58,38 @@ def local_games():
     return out
 
 
+PROFILES = os.path.expanduser("~/.config/pasteque/profiles")
+
+
+def load_profile(appid):
+    try:
+        return json.load(open(os.path.join(PROFILES, str(appid) + ".json")))
+    except Exception:
+        return {}
+
+
+def save_profile(appid, prof):
+    os.makedirs(PROFILES, exist_ok=True)
+    json.dump(prof, open(os.path.join(PROFILES, str(appid) + ".json"), "w"), indent=1)
+
+
 def launch(game):
+    key = game.get("appid") or game["name"]
+    prof = load_profile(key)
+    env = dict(os.environ)
+    env.update({k: v for k, v in (prof.get("env") or {}).items()})
+    if prof.get("gamemode"):
+        env["GAMEMODERUN"] = "1"
+    if prof.get("mangohud") is False:
+        env["MANGOHUD"] = "0"
     if game["kind"] == "steam":
-        subprocess.Popen(["steam", "-applaunch", game["appid"]])
+        cmd = ["steam", "-applaunch", game["appid"]]
     else:
-        subprocess.Popen(["/bin/bash", "-c", game["exec"]])
+        cmd = ["/bin/bash", "-c", game["exec"]]
+    p = subprocess.Popen(cmd, env=env)
+    nice = prof.get("nice")
+    if nice:
+        subprocess.run(["renice", str(nice), "-p", str(p.pid)], capture_output=True)
 
 
 def cli_list():
@@ -101,6 +128,9 @@ def gui():
             self.btn_refresh = QPushButton("Rafraîchir (réindexer)")
             self.btn_refresh.clicked.connect(self.refresh)
             row.addWidget(self.btn); row.addWidget(self.btn_refresh)
+            self.prof_btn = QPushButton("Éditer le profil du jeu sélectionné (env, GameMode, nice)")
+            self.prof_btn.clicked.connect(self.edit_profile)
+            row.addWidget(self.prof_btn)
             v.addLayout(row)
             self.populate()
             self.resize(820, 520)
@@ -118,6 +148,36 @@ def gui():
                     ac.setForeground(QColor("green"))
                 self.table.setItem(i, 2, ac)
                 self.table.setItem(i, 3, QTableWidgetItem(g.get("comment", "")))
+
+        def edit_profile(self):
+            g = self.selected()
+            if not g:
+                return
+            from PyQt6.QtWidgets import (QDialog, QFormLayout, QLineEdit, QCheckBox,
+                                         QSpinBox, QDialogButtonBox, QMessageBox)
+            key = g.get("appid") or g["name"]
+            prof = load_profile(key)
+            d = QDialog(self); d.setWindowTitle("Profil — %s" % g["name"])
+            f = QFormLayout(d)
+            env = QLineEdit("; ".join("%s=%s" % kv for kv in (prof.get("env") or {}).items()))
+            env.setPlaceholderText("DXVK_HUD=1; MANGOHUD=0 …")
+            gm = QCheckBox("GameMode (optimisations manuelles)"); gm.setChecked(bool(prof.get("gamemode")))
+            mh = QCheckBox("MangoHud (overlay)"); mh.setChecked(prof.get("mangohud", True))
+            nice = QSpinBox(); nice.setRange(-20, 19); nice.setValue(int(prof.get("nice") or 0))
+            f.addRow("Variables d'env (k=v;…)", env)
+            f.addRow(gm); f.addRow(mh); f.addRow("nice", nice)
+            bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            bb.accepted.connect(d.accept); bb.rejected.connect(d.reject)
+            f.addRow(bb)
+            if d.exec():
+                e = {}
+                for pair in env.text().split(";"):
+                    if "=" in pair:
+                        k, v = pair.split("=", 1)
+                        e[k.strip()] = v.strip()
+                save_profile(key, {"env": e, "gamemode": gm.isChecked(),
+                                   "mangohud": mh.isChecked(), "nice": nice.value()})
+                QMessageBox.information(self, "Profil", "Profil enregistré pour %s." % g["name"])
 
         def selected(self):
             r = self.table.currentRow()

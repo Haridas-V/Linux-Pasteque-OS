@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=🍉 Gestionnaire Pastèque
+Comment=Hub central : apps, jeux, mises à jour, perfs, personnalisation, sécurité, diagnostic
+Exec=/usr/local/bin/pasteque-hub
+Icon=applications-system
+Terminal=false
+Categories=System;Settings;

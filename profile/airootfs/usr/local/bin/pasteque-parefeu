@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""Pare-feu graphique Pastèque — firewalld : zones, services/ports ouverts, ajouter/retirer,
+journal. --smoke : liste les zones (test CI, sans toucher au pare-feu)."""
+import subprocess
+import sys
+
+
+def fw(*args):
+    return subprocess.run(["firewall-cmd"] + list(args), capture_output=True, text=True)
+
+
+def zones():
+    r = fw("--get-zones")
+    return r.stdout.split() if r.returncode == 0 else []
+
+
+def services(zone="public"):
+    r = fw("--zone=%s" % zone, "--list-services")
+    return r.stdout.split() if r.returncode == 0 else []
+
+
+def ports(zone="public"):
+    r = fw("--zone=%s" % zone, "--list-ports")
+    return r.stdout.split() if r.returncode == 0 else []
+
+
+def active_zone():
+    r = fw("--get-active-zones")
+    return r.stdout
+
+
+def smoke():
+    import shutil
+    if not shutil.which("firewall-cmd"):
+        print("smoke OK (firewall-cmd absent sur l'hôte de test; testé dans l'ISO en live)")
+        return 0
+    z = zones()
+    print("zones:", z)
+    print("zone active:", active_zone().strip().replace("\n", " | "))
+    print("services public:", services())
+    print("ports public:", ports())
+    print("smoke OK (lecture seule)")
+    return 0
+
+
+def gui():
+    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                                 QListWidget, QPushButton, QLineEdit, QLabel, QMessageBox)
+
+    class FW(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle("🛡️ Pare-feu — Pastèque")
+            w = QWidget(); self.setCentralWidget(w)
+            v = QVBoxLayout(w)
+            v.addWidget(QLabel("Zones actives : " + active_zone().strip().replace("\n", " | ")))
+            h = QHBoxLayout()
+            self.svc = QListWidget(); self.prt = QListWidget()
+            h.addWidget(QLabel("Services ouverts (public)")); h.addWidget(self.svc)
+            h.addWidget(QLabel("Ports ouverts (public)")); h.addWidget(self.prt)
+            v.addLayout(h)
+            h2 = QHBoxLayout()
+            self.inp = QLineEdit(); self.inp.setPlaceholderText("service ou port (ex: ssh, 8080/tcp)")
+            self.b_add = QPushButton("➕ Autoriser")
+            self.b_del = QPushButton("➖ Retirer la sélection")
+            self.b_add.clicked.connect(self.ajouter)
+            self.b_del.clicked.connect(self.retirer)
+            h2.addWidget(self.inp); h2.addWidget(self.b_add); h2.addWidget(self.b_del)
+            v.addLayout(h2)
+            self.maj()
+            self.resize(720, 420)
+
+        def maj(self):
+            self.svc.clear(); self.svc.addItems(services())
+            self.prt.clear(); self.prt.addItems(ports())
+
+        def ajouter(self):
+            x = self.inp.text().strip()
+            if not x:
+                return
+            r = fw("--add-service=" + x) if "/" not in x else fw("--add-port=" + x)
+            fw("--runtime-to-permanent") if r.returncode == 0 else None
+            if r.returncode != 0:
+                QMessageBox.warning(self, "Pare-feu", r.stderr or "échec")
+            self.maj(); self.inp.clear()
+
+        def retirer(self):
+            it = self.svc.currentItem() or self.prt.currentItem()
+            if not it:
+                return
+            x = it.text()
+            r = fw("--remove-service=" + x) if x in services() else fw("--remove-port=" + x)
+            fw("--runtime-to-permanent") if r.returncode == 0 else None
+            self.maj()
+
+    app = QApplication(sys.argv)
+    m = FW(); m.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(smoke() if "--smoke" in sys.argv else gui())

@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Diagnostic Pastèque — collecte un rapport système complet :
+journal erreurs (24h), unités en échec, disque (df/SMART si dispo), mémoire, CPU/GPU détectés,
+réseau, pare-feu, Secure Boot (mokutil), mises à jour en attente.
+Sauvegarde un rapport .md exportable. --smoke : génère le rapport (test CI)."""
+import os
+import platform
+import shutil
+import subprocess
+import sys
+import time
+
+OUT = os.path.expanduser("~/.local/share/pasteque/diagnostic-%s.md" % time.strftime("%Y%m%d-%H%M%S"))
+
+
+def sh(cmd, timeout=20):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout.strip()
+    except Exception as e:
+        return "(erreur: %s)" % e
+
+
+def rapport():
+    L = []
+    L.append("# 🍉 Rapport de diagnostic Pastèque — %s" % time.strftime("%Y-%m-%d %H:%M:%S"))
+    L.append("\n## Système\n```\n%s\n```" % sh(["uname", "-a"]))
+    L.append("\n## CPU / RAM\n```\n%s\nRAM: %s\n```" % (
+        sh(["lscpu"])[:800], sh(["free", "-h"]).replace("\n", " | ")))
+    g = sh(["bash", "-c", "lspci | grep -iE 'vga|3d|display' || echo 'GPU non detecté (VM ?)'"])
+    L.append("\n## GPU\n```\n%s\n```" % g)
+    L.append("\n## Disques\n```\n%s\n```" % sh(["lsblk", "-o", "NAME,SIZE,TYPE,MOUNTPOINT"]))
+    L.append("\n## Disque / (df)\n```\n%s\n```" % sh(["df", "-h", "/"]))
+    if shutil.which("smartctl"):
+        L.append("\n## SMART (si dispo)\n```\n%s\n```" % sh(["smartctl", "-H", "/dev/nvme0n1"])[:400] or sh(["smartctl", "-H", "/dev/sda"])[:400])
+    L.append("\n## Erreurs journal 24h\n```\n%s\n```" % sh(["journalctl", "-p", "3", "--since", "24 hours ago", "--no-pager"])[-1500:])
+    L.append("\n## Unités en échec\n```\n%s\n```" % sh(["systemctl", "--failed", "--no-legend"]))
+    L.append("\n## Réseau\n```\n%s\n```" % sh(["ip", "-br", "addr"])[:600])
+    L.append("\n## Pare-feu\n```\n%s\n```" % sh(["firewall-cmd", "--state"]) + " " + sh(["firewall-cmd", "--list-all"])[:400])
+    if shutil.which("mokutil"):
+        L.append("\n## Secure Boot\n```\n%s\n```" % sh(["mokutil", "--sb-state"]))
+    L.append("\n## Mises à jour en attente\n```\n%s\n```" % (sh(["pacman", "-Qu"])[:1500] or "aucune"))
+    L.append("\n## Apps Pastèque présentes\n```\n%s\n```" % "\n".join(sorted(os.listdir("/usr/local/bin"))) if os.path.isdir("/usr/local/bin") else "")
+    txt = "\n".join(L)
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    open(OUT, "w").write(txt)
+    return OUT, txt
+
+
+def smoke():
+    out, txt = rapport()
+    assert "Rapport de diagnostic" in txt and len(txt) > 500
+    print("smoke OK ->", out, "(%d Ko)" % (len(txt) // 1024))
+    return 0
+
+
+def gui():
+    from PyQt6.QtWidgets import QApplication, QMainWindow, QTextBrowser, QPushButton, QVBoxLayout, QWidget
+    out, txt = rapport()
+    app = QApplication(sys.argv)
+    m = QMainWindow(); m.setWindowTitle("🔍 Diagnostic — Pastèque")
+    w = QWidget(); m.setCentralWidget(w)
+    v = QVBoxLayout(w)
+    b = QTextBrowser(); b.setMarkdown(txt); v.addWidget(b)
+    r = QPushButton("🔄 Régénérer le rapport")
+    r.clicked.connect(lambda: b.setMarkdown(rapport()[1]))
+    v.addWidget(r)
+    m.resize(860, 700); m.show()
+    print("rapport:", out)
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(smoke() if "--smoke" in sys.argv else gui())

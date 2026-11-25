@@ -73,3 +73,13 @@ après autologin SDDM → à valider en matériel (point 4 ci-dessus).
 - [ ] **Apps natives en session réelle** : ouvrir Notes/Minuteur/Snake/Monitoring depuis le menu → fenêtres OK ; jouer au snake, record sauvegardé après reboot.
 - [ ] **Générateur FR réel** : `pasteque-genere "fais-moi une app qui note mes courses"` → app dans le menu, s'ouvre, données persistantes.
 - [ ] **Personnalisation réelle** : changer thème/accent/fond/panneau → appliqué immédiatement, persistant après reboot.
+
+- [ ] **Hub central** : chaque module s'ouvre ; onglet Mises à jour liste les paquets et installe au clic (pas d'auto sans consentement).
+- [ ] **Profils par jeu** : définir env+GameMode pour un jeu → appliqué au lancement (vérifier `ps e`).
+- [ ] **Priorités** : monter le nice d'un processus, vérifier avec `ps -o ni`.
+- [ ] **Benchmark** : lancer, résultats mesurés, export JSON ; GPU vkcube avec vraie carte AMD.
+- [ ] **Pare-feu GUI** : autoriser/refuser un port, persistant après reboot (`firewall-cmd --list-all`).
+- [ ] **Diagnostic** : rapport généré, contient erreurs journal + unités en échec + SMART.
+- [ ] **Profils d'apparence** : appliquer Gaming → thème+accent+fond changent, persistant au reboot ; sauvegarder/restaurer.
+- [ ] **Écran GRUB** : thème pastèque avec icône au boot.
+- [ ] **gamescope** : lancer un jeu avec `gamescope -w 2560 -h 1440 -r 240` sur écran 1440p/240Hz.

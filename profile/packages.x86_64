@@ -125,6 +125,9 @@ mythes-fr
 steam
 lutris
 gamemode
+gamescope        # session jeu plein écran/freq forcée (ex: 1440p 240Hz)
+lib32-gamescope
+smartmontools    # SMART disque (diagnostic)
 lib32-gamemode
 mangohud
 lib32-mangohud

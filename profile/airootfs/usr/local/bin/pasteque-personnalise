@@ -157,7 +157,72 @@ def gui():
             b4 = QPushButton("Appliquer")
             b4.clicked.connect(lambda: appliquer_police(self.police.value()))
             vb4.addWidget(b4); v.addWidget(gb4)
-            self.resize(520, 560)
+            gb5 = QGroupBox("Profils d'apparence"); vb5 = QVBoxLayout(gb5)
+            h5 = QHBoxLayout()
+            self.preset = QComboBox()
+            self.preset.addItems(["Sobre (défaut, sombre)", "Gaming (sombre + accent pastèque)",
+                                  "Clair", "Minimal"])
+            b5 = QPushButton("Appliquer le profil")
+            b5.clicked.connect(self.appliquer_profil)
+            h5.addWidget(self.preset); h5.addWidget(b5)
+            vb5.addLayout(h5)
+            h6 = QHBoxLayout()
+            self.pnom = QLineEdit(); self.pnom.setPlaceholderText("Nom du profil perso…")
+            b6 = QPushButton("💾 Sauvegarder comme profil")
+            b7 = QPushButton("♻️ Restaurer un profil")
+            b6.clicked.connect(self.sauver_profil); b7.clicked.connect(self.restaurer_profil)
+            h6.addWidget(self.pnom); h6.addWidget(b6); h6.addWidget(b7)
+            vb5.addLayout(h6)
+            v.addWidget(gb5)
+            self.resize(520, 700)
+
+        def appliquer_profil(self):
+            i = self.preset.currentIndex()
+            if i == 0:
+                appliquer_theme(True); appliquer_accent("#3daee9")
+            elif i == 1:
+                appliquer_theme(True); appliquer_accent("#e5484d")
+                f = fonds_dispos()
+                if f:
+                    appliquer_fond(f[0])
+            elif i == 2:
+                appliquer_theme(False); appliquer_accent("#3daee9")
+            else:
+                appliquer_theme(True); appliquer_accent("#888888"); appliquer_police(10)
+
+        def sauver_profil(self):
+            import json
+            from PyQt6.QtWidgets import QMessageBox
+            nom = self.pnom.text().strip() or "mon-profil"
+            d = os.path.expanduser("~/.config/pasteque/profils-apparence.json")
+            os.makedirs(os.path.dirname(d), exist_ok=True)
+            try:
+                profs = json.load(open(d))
+            except Exception:
+                profs = {}
+            profs[nom] = {"theme_sombre": self.rb_dark.isChecked(), "accent": self.hex,
+                          "fond": self.fonds.currentData(), "police": self.police.value()}
+            json.dump(profs, open(d, "w"), indent=1)
+            QMessageBox.information(self, "Profil", "Profil sauvegardé : %s" % nom)
+
+        def restaurer_profil(self):
+            import json
+            from PyQt6.QtWidgets import QInputDialog, QMessageBox
+            d = os.path.expanduser("~/.config/pasteque/profils-apparence.json")
+            try:
+                profs = json.load(open(d))
+            except Exception:
+                profs = {}
+            if not profs:
+                QMessageBox.information(self, "Profils", "Aucun profil sauvegardé.")
+                return
+            nom, ok = QInputDialog.getItem(self, "Restaurer", "Profil :", list(profs), 0, False)
+            if ok and nom in profs:
+                pr = profs[nom]
+                appliquer_theme(pr["theme_sombre"]); appliquer_accent(pr["accent"])
+                if pr.get("fond"):
+                    appliquer_fond(pr["fond"])
+                appliquer_police(pr.get("police", 10))
 
         def choisir_couleur(self):
             c = QColorDialog.getColor(QColor(self.hex), self, "Couleur d'accent")
