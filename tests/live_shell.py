@@ -51,6 +51,7 @@ class Serial:
             raise RuntimeError("socket indisponible: " + path)
         self.s.settimeout(timeout)
         self.buf = b""
+        self.log = b""   # historique complet, jamais consomme (artefact serial-live.log)
 
     def drain(self, t):
         end = time.time() + t
@@ -60,6 +61,7 @@ class Serial:
                 if not d:
                     break
                 self.buf += d
+                self.log += d
             except socket.timeout:
                 pass
 
@@ -182,6 +184,55 @@ def phase_structure(iso, rep):
     rep.check("iso-sha256", sha.returncode == 0, (sha.stdout + sha.stderr).strip())
 
 
+def inspect_initramfs(iso, rep, outdir):
+    """Extrait l'initramfs de l'ISO et verifie que les modules critiques du boot
+    (CD/USB/squashfs + index kmod) y sont embarques. Liste les .ko dans un artefact."""
+    import lzma
+    tmp = os.path.join(outdir, "initrd-inspect.img")
+    r = subprocess.run([os.path.join(TROOT, "usr/bin/xorriso"), "-osirrox", "on", "-overwrite", "on",
+                        "-indev", iso, "-extract", "/boot/x86_64/initramfs-linux.img", tmp],
+                       capture_output=True, env=tool_env())
+    if r.returncode != 0 or not os.path.exists(tmp):
+        rep.check("initramfs-extract", False, "xorriso rc=%d" % r.returncode)
+        return
+    required = {
+        "ahci": b"ahci.ko", "ata_piix": b"ata_piix.ko", "ata_generic": b"ata_generic.ko",
+        "sr_mod": b"sr_mod.ko", "cdrom": b"cdrom.ko", "scsi_mod": b"scsi_mod.ko",
+        "sd_mod": b"sd_mod.ko", "nvme": b"nvme.ko", "virtio_blk": b"virtio_blk.ko",
+        "virtio_scsi": b"virtio_scsi.ko", "usb-storage": b"usb-storage.ko", "xhci-pci": b"xhci-pci.ko",
+        "squashfs": b"squashfs.ko", "isofs": b"isofs.ko", "overlay": b"overlay.ko",
+        "loop": b"loop.ko", "ext4": b"ext4.ko", "btrfs": b"btrfs.ko",
+        "modules.dep": b"modules.dep", "modules.alias": b"modules.alias",
+    }
+    raw = open(tmp, "rb").read()
+    # decompresse chaque stream xz present (l'initramfs peut en contenir plusieurs)
+    dec_all = b""
+    magic = b"\xfd7zXZ\x00"
+    pos = 0
+    while pos < len(raw):
+        i = raw.find(magic, pos)
+        if i < 0:
+            break
+        dec = lzma.LZMADecompressor()
+        try:
+            dec_all += dec.decompress(raw[i:])
+        except lzma.LZMAError:
+            pass
+        if dec.eof and dec.unused_data:
+            pos = len(raw) - len(dec.unused_data)
+        else:
+            break
+    os.remove(tmp)
+    hay_all = raw + dec_all   # brut (cpio early non compressé) + decompressé
+    found = {k: (pat in hay_all) for k, pat in required.items()}
+    mods = set(re.findall(rb"[\w./+-]*\.ko(?:\.\w+)?", dec_all))
+    with open(os.path.join(outdir, "initramfs-modules.txt"), "w") as f:
+        f.write("\n".join(sorted(m.decode() for m in mods)) + "\n")
+    rep.check("initramfs-decompress", bool(dec_all), "%d .ko, %d Mo decompresses" % (len(mods), len(dec_all) // 1048576))
+    for k, ok in sorted(found.items()):
+        rep.check("initramfs-module-%s" % k, ok, "")
+
+
 def phase_boot_loader(iso, rep, outdir, uefi):
     """Boot depuis le CD via le vrai chargeur (isolinux BIOS ou grub UEFI/OVMF)."""
     sock = os.path.join(outdir, "ser-%s.sock" % ("uefi" if uefi else "bios"))
@@ -189,7 +240,11 @@ def phase_boot_loader(iso, rep, outdir, uefi):
     for p in (sock, qmps):
         if os.path.exists(p):
             os.remove(p)
-    extra = ["-cdrom", iso, "-boot", "d",
+    # CD attache explicitement sur un controleur AHCI (q35) : le noyau verra /dev/sr0
+    extra = ["-device", "ahci,id=pq-sata",
+             "-drive", "if=none,id=pq-cd,media=cdrom,readonly=on,file=%s" % iso,
+             "-device", "ide-cd,bus=pq-sata.0,drive=pq-cd",
+             "-boot", "d",
              "-serial", "unix:%s,server,nowait" % sock,
              "-qmp", "unix:%s,server,nowait" % qmps]
     if uefi:
@@ -256,10 +311,14 @@ def phase_live_and_install(iso, rep, outdir):
         os.remove(sock)
     proc = qemu_base([
         "-kernel", kernel, "-initrd", initrd,
-        "-append", "archisolabel=PASTEQUE archisobasedir=arch console=ttyS0,115200 init=/bin/bash",
+        # rdinit (pas init=) : /bin/bash vraiment en PID1 de l'initramfs, sans passer
+        # par /init -> on controle nous-memes les modprobe/montages ci-dessous
+        "-append", "archisolabel=PASTEQUE archisobasedir=arch console=ttyS0,115200 rdinit=/bin/bash",
         "-cdrom", iso, "-boot", "d",
         "-drive", "file=%s,if=virtio" % vda,
         "-drive", "file=%s,if=virtio" % vdb,
+        # l'ISO aussi en disque virtio (secours si le CD SATA n'est pas vu) -> /dev/vdc
+        "-drive", "file=%s,format=raw,if=virtio,readonly=on" % iso,
         "-serial", "unix:%s,server,nowait" % sock,
     ])
     if not wait_sock(sock, proc):
@@ -267,19 +326,27 @@ def phase_live_and_install(iso, rep, outdir):
         proc.kill()
         return
     ser = Serial(sock)
-    ser.wait_for(r"/ #|~ #|\]#", timeout=180)
+    ser.wait_for(r"/ #|~ #|\]#|bash-[0-9.]+#", timeout=180)
     time.sleep(2)
     ser.drain(2)
+
+    # sonde de diagnostic : quels blocs/modules/dmesg voit le noyau ?
+    probe, _ = ser.run("echo ===BLOCK===; ls /sys/block 2>&1; echo ===MODS===; "
+                       "cat /proc/modules 2>/dev/null | cut -d' ' -f1 | tr '\\n' ' '; echo; "
+                       "echo ===DMESG===; dmesg | grep -iE 'ahci|ata[0-9]|sr[0-9]|scsi|virtio|cdrom' | tail -30; "
+                       "echo ===LABEL===; ls -la /dev/disk/by-label 2>&1; echo ===END===", timeout=90)
+    open(os.path.join(outdir, "live-probe.txt"), "w").write(probe)
+    open(os.path.join(outdir, "serial-live.log"), "w").write(ser.log.decode("utf-8", "replace"))
 
     setup = [
         # le hook cleanup d'archiso a demonte /dev /proc /sys : on les recree
         "mkdir -p /dev /proc /sys /run/m /tmp/sfs /newroot /mnt/scratch; true",
         "mount -t devtmpfs devtmpfs /dev; mount -t proc proc /proc; mount -t sysfs sys /sys; true",
         "modprobe ahci; modprobe virtio_blk; modprobe sr_mod; modprobe cdrom; modprobe loop; modprobe squashfs; modprobe isofs; modprobe overlay; sleep 2; ls /dev > /tmp/devlist.txt 2>&1; true",
-        "modprobe ata_piix ata_generic ahci sr_mod cdrom 2>/dev/null; udevadm trigger --action=add 2>/dev/null; udevadm settle --timeout=15 2>/dev/null; for i in $(seq 1 30); do [ -e /dev/disk/by-label/PASTEQUE ] && break; sleep 1; done; "
+        "modprobe ata_piix ata_generic ahci sr_mod cdrom scsi_mod 2>/dev/null; for i in $(seq 1 30); do [ -e /dev/disk/by-label/PASTEQUE ] && break; [ -b /dev/sr0 ] && break; sleep 1; done; "
         "mkdir -p /run/m; mount -o ro /dev/sr0 /run/m 2>/dev/null || mount -o ro LABEL=PASTEQUE /run/m 2>/dev/null || "
-        "for d in /dev/sr* /dev/sd*; do [ -b \"$d\" ] && blkid \"$d\" 2>/dev/null | grep -q PASTEQUE && mount -o ro \"$d\" /run/m && break; done || "
-        "(ls -la /dev /dev/sr* 2>/dev/null > /tmp/devlist.txt; dmesg | tail -30 >> /tmp/devlist.txt; cat /tmp/devlist.txt; false)",
+        "for d in /dev/sr* /dev/sd* /dev/vd*; do [ -b \"$d\" ] && blkid \"$d\" 2>/dev/null | grep -q PASTEQUE && mount -o ro \"$d\" /run/m && break; done || "
+        "(ls -la /dev /dev/disk/by-label /dev/sr* /dev/vd* 2>/dev/null > /tmp/devlist.txt; dmesg | tail -40 >> /tmp/devlist.txt; cat /proc/modules >> /tmp/devlist.txt; cat /tmp/devlist.txt; false)",
         "mount /dev/vdb /mnt/scratch || true",
         "mkdir -p /mnt/scratch/up /mnt/scratch/wrk",
         "mount -t squashfs -o loop,ro /run/m/arch/x86_64/airootfs.sfs /tmp/sfs",
@@ -289,12 +356,9 @@ def phase_live_and_install(iso, rep, outdir):
         "mount --bind /proc /newroot/proc",
         "mount --bind /sys /newroot/sys",
     ]
-    # sonde de diagnostic toujours loguée (serial + rapport)
-    ser.run("ls -la /dev /dev/disk/by-label 2>&1; dmesg | tail -40; cat /proc/filesystems", timeout=60)
-    open(os.path.join(outdir, "serial-live.log"), "w").write(ser.buf.decode("utf-8", "replace"))
     for c in setup:
         out, rc = ser.run(c, timeout=240)
-        open(os.path.join(outdir, "serial-live.log"), "w").write(ser.buf.decode("utf-8", "replace"))
+        open(os.path.join(outdir, "serial-live.log"), "w").write(ser.log.decode("utf-8", "replace"))
         if rc != 0:
             rep.check("live-mount", False, c + " -> " + out[-3000:])
             proc.kill()
@@ -315,6 +379,7 @@ def phase_live_and_install(iso, rep, outdir):
     rep.check("live-upload-script", True, "")
     out, rc = ser.run("chroot /newroot /bin/bash /tmp/live_tests.sh", timeout=900)
     open(os.path.join(outdir, "live-tests.txt"), "w").write(out)
+    open(os.path.join(outdir, "serial-live.log"), "w").write(ser.log.decode("utf-8", "replace"))
     for line in out.splitlines():
         if line.startswith(("PASS ", "FAIL ")):
             rep.check("live: " + line.split(None, 1)[1], line.startswith("PASS"), "")
@@ -400,6 +465,7 @@ def main():
     rep = Report(outdir)
     print("[tests] ISO:", iso, "->", outdir, flush=True)
     phase_structure(iso, rep, )
+    inspect_initramfs(iso, rep, outdir)
     phase_boot_loader(iso, rep, outdir, uefi=False)
     phase_boot_loader(iso, rep, outdir, uefi=True)
     phase_live_and_install(iso, rep, outdir)

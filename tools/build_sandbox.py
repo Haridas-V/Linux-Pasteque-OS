@@ -43,30 +43,61 @@ COMPRESSION="xz"
 
 # Hook maison : charge explicitement les modules critiques au boot de l'ISO
 # (l'autodétection udev par modalias est peu fiable en VM/émulation).
-HOOK_INSTALL = """#!/usr/bin/bash
+HOOK_INSTALL = r"""#!/usr/bin/bash
+# Hook Pasteque (build) : embarque explicitement les modules critiques du boot live
+# (CD SATA/IDE, USB, NVMe, squashfs/overlay...). Resolution par chemin .ko pour ne pas
+# dependre des index kmod (depmod peut ne pas avoir tourne dans le chroot de build).
 build() {
     add_runscript
-    add_module sr_mod cdrom scsi_mod ata_piix ata_generic ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3  usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net
+    local m p kv
+    kv="${KERNELVERSION:-$(ls /usr/lib/modules 2>/dev/null | head -1)}"
+    for m in sr_mod cdrom scsi_mod ata_piix ata_generic ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3 usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net; do
+        p=$(find "/usr/lib/modules/$kv/kernel" -name "$m.ko*" 2>/dev/null | head -n1)
+        if [ -n "$p" ]; then
+            add_module "$p"
+        else
+            add_module "$m" 2>/dev/null || true
+        fi
+    done
 }
 """
 
-HOOK_RUNTIME = """#!/usr/bin/ash
+HOOK_RUNTIME = r"""#!/usr/bin/ash
+# Hook Pasteque (runtime) : charge explicitement les modules critiques, re-declenche
+# udev, puis ATTEND que le medium de boot (CD/USB, label archisolabel) soit visible
+# avant le hook archiso (sinon archiso plante : "device did not show up after 30 seconds").
 run_hook() {
-    local m i
-    for m in sr_mod cdrom scsi_mod ata_piix ata_generic ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3  usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net; do
-        modprobe "$m" 2>/dev/null
+    local m p kv i lbl
+    kv=$(ls /usr/lib/modules 2>/dev/null | head -1)
+    # ordre de dependances : core scsi -> cdrom -> controleurs ATA -> sr_mod
+    for m in scsi_mod cdrom ahci ata_piix ata_generic sr_mod sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3 usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net; do
+        modprobe "$m" 2>/dev/null || {
+            for p in /usr/lib/modules/$kv/kernel/drivers/*/"$m".ko* /usr/lib/modules/$kv/kernel/drivers/*/*/"$m".ko*; do
+                if [ -e "$p" ]; then insmod "$p" 2>/dev/null && break; fi
+            done
+        }
     done
-    # nœuds loop pour le montage de la squashfs (devtmpfs ne les crée pas tous)
+    # noeuds loop pour le montage de la squashfs (devtmpfs ne les cree pas tous)
     [ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237 2>/dev/null
     i=0
     while [ $i -lt 16 ]; do
         [ -e /dev/loop$i ] || mknod /dev/loop$i b 7 $i 2>/dev/null
         i=$((i+1))
     done
-    # l' coldplug udev a pu tourner AVANT ces modprobe : re-déclenche les uevents
-    # pour que /dev/disk/by-label/PASTEQUE (CD) soit créé -> sinon l'hook archiso échoue
+    # le coldplug udev a pu tourner AVANT ces modprobe : re-declenche les uevents
     udevadm trigger --action=add 2>/dev/null
     udevadm settle --timeout=15 2>/dev/null
+    # attend que le medium labellise (CD/USB) soit visible pour le hook archiso
+    lbl=$(sed -n 's/.*archisolabel=\([^ ]*\).*/\1/p' /proc/cmdline 2>/dev/null)
+    [ -z "$lbl" ] && lbl=PASTEQUE
+    i=0
+    while [ $i -lt 30 ]; do
+        [ -e "/dev/disk/by-label/$lbl" ] && break
+        [ -b /dev/sr0 ] && break
+        sleep 1
+        i=$((i+1))
+    done
+    udevadm settle --timeout=10 2>/dev/null
 }
 """
 
@@ -295,8 +326,12 @@ def step_extras():
 
 
 def step_initramfs():
+    # index kmod (depmod) dans la rootfs AVANT mkinitcpio : indispensable pour
+    # add_module/modinfo/udev quand le hook pacman 'depmod' ne tourne pas en chroot
     chroot(["/bin/bash", "-c",
-            "kv=$(ls /usr/lib/modules | head -1); ln -sf /usr/lib/modules/$kv/vmlinuz /boot/vmlinuz-linux"])
+            "for kv in $(ls /usr/lib/modules 2>/dev/null); do depmod -a \"$kv\" 2>/dev/null; done; "
+            "kv=$(ls /usr/lib/modules | grep -v -- -lts | head -1); "
+            "ln -sf /usr/lib/modules/$kv/vmlinuz /boot/vmlinuz-linux; true"])
     # chroot sans /proc/self/fd : patch des substitutions de processus de mkinitcpio
     run([sys.executable, os.path.join(TOOLS, "patch_initcpio.py"),
          os.path.join(ROOTFS, "usr/lib/initcpio/functions")])

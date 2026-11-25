@@ -297,6 +297,27 @@ def test_conf_manual_updates_default():
     assert re.search(r"(?m)^AUTO_UPDATE=0", c), "les mises à jour doivent être manuelles par défaut"
 
 
+def test_initramfs_hooks_cd_boot():
+    """Le boot live depuis CD/USB exige ahci/sr_mod/cdrom/virtio dans l'initramfs,
+    un index kmod (depmod) et l'attente du medium labellisé avant le hook archiso."""
+    hooks = ["profile/airootfs/usr/lib/initcpio/install/pasteque_mods",
+             "profile/airootfs/usr/lib/initcpio/hooks/pasteque_mods"]
+    for rel in hooks:
+        p = os.path.join(REPO, rel)
+        r = subprocess.run(["bash", "-n", p], capture_output=True, text=True)
+        assert r.returncode == 0, "%s: %s" % (rel, r.stderr)
+        content = open(p, encoding="utf-8").read()
+        for mod in ("ahci", "ata_piix", "sr_mod", "cdrom", "scsi_mod", "virtio_blk",
+                    "usb-storage", "squashfs", "isofs", "overlay"):
+            assert mod in content, "%s: module %s absent du hook" % (rel, mod)
+    rt = open(os.path.join(REPO, hooks[1]), encoding="utf-8").read()
+    assert "archisolabel" in rt and "by-label" in rt, "le hook runtime doit attendre le medium labellisé"
+    assert "insmod" in rt, "fallback insmod par chemin .ko manquant"
+    src = open(os.path.join(REPO, "tools/build_sandbox.py"), encoding="utf-8").read()
+    assert "depmod -a" in src, "depmod doit tourner dans la rootfs avant mkinitcpio (index kmod)"
+    assert 'add_module "$p"' in src, "add_module par chemin .ko manquant dans le hook build"
+
+
 if __name__ == "__main__":
     t("py_compile tous les scripts", compile_all)
     t("bash -n tous les scripts shell", bash_n_all)
@@ -316,6 +337,7 @@ if __name__ == "__main__":
     t("profils par jeu (pasteque-games)", test_games_profiles)
     t("thème GRUB Pastèque + logo PNG + conf grub", test_grub_theme_and_logo)
     t("mises à jour manuelles par défaut (AUTO_UPDATE=0)", test_conf_manual_updates_default)
+    t("hooks initramfs : modules boot CD/USB + depmod + attente medium", test_initramfs_hooks_cd_boot)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

@@ -1,14 +1,38 @@
 #!/usr/bin/ash
+# Hook Pasteque (runtime) : charge explicitement les modules critiques, re-declenche
+# udev, puis ATTEND que le medium de boot (CD/USB, label archisolabel) soit visible
+# avant le hook archiso (sinon archiso plante : "device did not show up after 30 seconds").
+# (tools/build_sandbox.py reecrit ce fichier au build avec le meme contenu)
 run_hook() {
-    local m i
-    for m in sr_mod cdrom ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3 usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net; do
-        modprobe "$m" 2>/dev/null
+    local m p kv i lbl
+    kv=$(ls /usr/lib/modules 2>/dev/null | head -1)
+    # ordre de dependances : core scsi -> cdrom -> controleurs ATA -> sr_mod
+    for m in scsi_mod cdrom ahci ata_piix ata_generic sr_mod sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3 usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net; do
+        modprobe "$m" 2>/dev/null || {
+            for p in /usr/lib/modules/$kv/kernel/drivers/*/"$m".ko* /usr/lib/modules/$kv/kernel/drivers/*/*/"$m".ko*; do
+                if [ -e "$p" ]; then insmod "$p" 2>/dev/null && break; fi
+            done
+        }
     done
-    # nœuds loop pour le montage de la squashfs (devtmpfs ne les crée pas tous)
+    # noeuds loop pour le montage de la squashfs (devtmpfs ne les cree pas tous)
     [ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237 2>/dev/null
     i=0
     while [ $i -lt 16 ]; do
         [ -e /dev/loop$i ] || mknod /dev/loop$i b 7 $i 2>/dev/null
         i=$((i+1))
     done
+    # le coldplug udev a pu tourner AVANT ces modprobe : re-declenche les uevents
+    udevadm trigger --action=add 2>/dev/null
+    udevadm settle --timeout=15 2>/dev/null
+    # attend que le medium labellise (CD/USB) soit visible pour le hook archiso
+    lbl=$(sed -n 's/.*archisolabel=\([^ ]*\).*/\1/p' /proc/cmdline 2>/dev/null)
+    [ -z "$lbl" ] && lbl=PASTEQUE
+    i=0
+    while [ $i -lt 30 ]; do
+        [ -e "/dev/disk/by-label/$lbl" ] && break
+        [ -b /dev/sr0 ] && break
+        sleep 1
+        i=$((i+1))
+    done
+    udevadm settle --timeout=10 2>/dev/null
 }
