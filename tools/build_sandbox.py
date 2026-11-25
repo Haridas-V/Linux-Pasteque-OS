@@ -46,14 +46,14 @@ COMPRESSION="xz"
 HOOK_INSTALL = """#!/usr/bin/bash
 build() {
     add_runscript
-    add_module sr_mod cdrom ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3  usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net
+    add_module sr_mod cdrom scsi_mod ata_piix ata_generic ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3  usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net
 }
 """
 
 HOOK_RUNTIME = """#!/usr/bin/ash
 run_hook() {
     local m i
-    for m in sr_mod cdrom ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3  usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net; do
+    for m in sr_mod cdrom scsi_mod ata_piix ata_generic ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3  usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net; do
         modprobe "$m" 2>/dev/null
     done
     # nœuds loop pour le montage de la squashfs (devtmpfs ne les crée pas tous)
