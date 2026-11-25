@@ -289,10 +289,14 @@ def phase_live_and_install(iso, rep, outdir):
         "mount --bind /proc /newroot/proc",
         "mount --bind /sys /newroot/sys",
     ]
+    # sonde de diagnostic toujours loguée (serial + rapport)
+    ser.run("ls -la /dev /dev/disk/by-label 2>&1; dmesg | tail -40; cat /proc/filesystems", timeout=60)
+    open(os.path.join(outdir, "serial-live.log"), "w").write(ser.buf.decode("utf-8", "replace"))
     for c in setup:
         out, rc = ser.run(c, timeout=240)
+        open(os.path.join(outdir, "serial-live.log"), "w").write(ser.buf.decode("utf-8", "replace"))
         if rc != 0:
-            rep.check("live-mount", False, c + " -> " + out[-200:])
+            rep.check("live-mount", False, c + " -> " + out[-3000:])
             proc.kill()
             return
     rep.check("live-mount", True, "squashfs montée, overlay OK")
