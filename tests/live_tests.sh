@@ -126,6 +126,9 @@ t parefeu-smoke /usr/local/bin/pasteque-parefeu --smoke
 t diagnostic-smoke /usr/local/bin/pasteque-diagnostic --smoke
 t grub-theme test -f /usr/share/grub/themes/pasteque/theme.txt -a -f /usr/share/pasteque/logo.png
 t gamescope-test pacman -Q gamescope smartmontools >/dev/null 2>&1
+t scripts-audit bash -c "for f in /usr/local/bin/pasteque-*; do test -x \"$f\" || { echo \"non exécutable: $f\"; exit 1; }; head -1 \"$f\" | grep -q python && python3 -m py_compile \"$f\" || bash -n \"$f\" || { echo \"syntaxe KO: $f\"; exit 1; }; done"
+t anticheat-helpers test -x /usr/local/bin/pasteque-anticheat-setlaunch -a -x /usr/local/bin/pasteque-anticheat-warn
+t finalize-present test -x /usr/local/bin/pasteque-finalize-install -a -x /usr/local/bin/pasteque-install-extras -a -x /usr/local/bin/pasteque-grub-snapshots
 t games-launcher bash -c "mkdir -p /tmp/fakehome2 && HOME=/tmp/fakehome2 /usr/local/bin/pasteque-games --list | grep -q 'total: 0 jeux'"
 t secureboot-mok test -s /usr/share/pasteque/mok/Pasteque.der -a -x /usr/local/bin/pasteque-secureboot -a -x /usr/bin/mokutil
 t anticheat-fortnite python3 -c "import json; d=json.load(open('/usr/share/pasteque/anticheat-db.json')); assert d['games']['fortnite']['status']=='OK'; print('fortnite OK')"
