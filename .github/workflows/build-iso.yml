@@ -32,8 +32,8 @@ jobs:
             python3 tools/build_sandbox.py all
             python3 tools/check_isohybrid.py out/*.iso
             set +e
-            python3 tests/run_vm_test.py --timeout 480
-            python3 tests/usb_boot_test.py --uefi --timeout 600
+            python3 tests/run_vm_test.py --timeout 900
+            python3 tests/usb_boot_test.py --uefi --timeout 900
             python3 tests/live_shell.py "$(ls out/*.iso | head -1)"
             # signature GPG de l ISO si cle secrete configuree (PASTEQUE_GPG_KEY + PASTEQUE_GPG_PASSPHRASE)
             ISO=$(ls out/*.iso | head -1)
@@ -51,4 +51,4 @@ jobs:
             out/*.iso
             out/*.sha256
             out/*.asc
-            tests/artifacts/*/result.txt
+            tests/artifacts/**

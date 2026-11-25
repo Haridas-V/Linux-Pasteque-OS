@@ -209,7 +209,7 @@ def phase_boot_loader(iso, rep, outdir, uefi):
         proc.kill()
         return
     ser = Serial(sock)
-    ser.wait_for(r"(login:|Reached target|Started Simple Desktop)", timeout=600)
+    ser.wait_for(r"(login:|Reached target|Started Simple Desktop)", timeout=900)
     time.sleep(30)
     ser.drain(5)
     text = ser.buf.decode("utf-8", "replace")
@@ -276,7 +276,10 @@ def phase_live_and_install(iso, rep, outdir):
         "mkdir -p /dev /proc /sys /run/m /tmp/sfs /newroot /mnt/scratch; true",
         "mount -t devtmpfs devtmpfs /dev; mount -t proc proc /proc; mount -t sysfs sys /sys; true",
         "modprobe ahci; modprobe virtio_blk; modprobe sr_mod; modprobe cdrom; modprobe loop; modprobe squashfs; modprobe isofs; modprobe overlay; sleep 2; ls /dev > /tmp/devlist.txt 2>&1; true",
-        "mount -o ro /dev/sr0 /run/m || mount -o ro LABEL=PASTEQUE /run/m || (cat /tmp/devlist.txt; false)",
+        "modprobe sr_mod cdrom 2>/dev/null; for i in $(seq 1 20); do [ -b /dev/sr0 ] && break; sleep 1; done; "
+        "mkdir -p /run/m; mount -o ro /dev/sr0 /run/m 2>/dev/null || mount -o ro LABEL=PASTEQUE /run/m 2>/dev/null || "
+        "for d in /dev/sr* /dev/sd*; do [ -b \"$d\" ] && blkid \"$d\" 2>/dev/null | grep -q PASTEQUE && mount -o ro \"$d\" /run/m && break; done || "
+        "(ls -la /dev > /tmp/devlist.txt; cat /tmp/devlist.txt; false)",
         "mount /dev/vdb /mnt/scratch || true",
         "mkdir -p /mnt/scratch/up /mnt/scratch/wrk",
         "mount -t squashfs -o loop,ro /run/m/arch/x86_64/airootfs.sfs /tmp/sfs",

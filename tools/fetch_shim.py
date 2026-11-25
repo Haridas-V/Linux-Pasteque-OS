@@ -80,10 +80,13 @@ def main():
         return
     print("[shim] liste du pool Ubuntu...", flush=True)
     html = urllib.request.urlopen(urllib.request.Request(POOL, headers={"User-Agent": "pasteque-build/1.0"}), timeout=60).read().decode()
-    debs = sorted(re.findall(r'href="(shim-signed_[^"]+_amd64\.deb)"', html))
+    debs = re.findall(r'href="(shim-signed_[^"]+_amd64\.deb)"', html)
     if not debs:
         raise RuntimeError("aucun .deb shim-signed trouvé dans le pool")
-    deb = debs[-1]
+    def vkey(name):
+        m = re.match(r"shim-signed_([0-9][0-9.+~+-]*)", name)
+        return [int(x) if x.isdigit() else x for x in re.split(r"[.+~-]", m.group(1))] if m else [0]
+    deb = sorted(debs, key=vkey)[-1]  # vraie version la plus haute (pas un tri alpha)
     print("[shim] dernier paquet :", deb, flush=True)
     with tempfile.TemporaryDirectory() as td:
         dpath = os.path.join(td, deb)
@@ -94,12 +97,13 @@ def main():
         if data is None:
             raise RuntimeError("data.tar.* introuvable dans le .deb")
         tf = tarfile.open(fileobj=io.BytesIO(decompress(data)), mode="r|*")
-        wanted = {"./usr/lib/shim/shimx64.efi.signed": "shimx64.efi",
-                  "./usr/lib/shim/mmx64.efi.signed": "mmx64.efi"}
         got = {}
         for m in tf:
-            if m.name in wanted:
-                got[wanted[m.name]] = tf.extractfile(m).read()
+            base = os.path.basename(m.name)
+            if base in ("shimx64.efi.signed", "shimx64.efi"):
+                got["shimx64.efi"] = tf.extractfile(m).read()
+            elif base in ("mmx64.efi.signed", "mmx64.efi"):
+                got["mmx64.efi"] = tf.extractfile(m).read()
         if "shimx64.efi" not in got:
             raise RuntimeError("shimx64.efi.signed absent du paquet")
         for name, blob in got.items():
