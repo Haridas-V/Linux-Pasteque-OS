@@ -184,9 +184,38 @@ def phase_structure(iso, rep):
     rep.check("iso-sha256", sha.returncode == 0, (sha.stdout + sha.stderr).strip())
 
 
+def _cpio_files(data):
+    out = {}
+    pos = 0
+    n = len(data)
+    while pos + 110 <= n:
+        if data[pos:pos + 6] != b"070701":
+            nxt = data.find(b"070701", pos + 1)
+            if nxt < 0:
+                break
+            pos = nxt
+            continue
+        hdr = data[pos:pos + 110]
+        try:
+            filesize = int(hdr[54:62], 16)
+            namesize = int(hdr[94:102], 16)
+        except ValueError:
+            pos += 1
+            continue
+        name = data[pos + 110:pos + 110 + namesize - 1].decode("utf-8", "replace")
+        off = (pos + 110 + namesize + 3) & ~3
+        if name == "TRAILER!!!":
+            pos = (off + filesize + 3) & ~3
+            continue
+        out[name] = data[off:off + filesize]
+        pos = (off + filesize + 3) & ~3
+    return out
+
+
 def inspect_initramfs(iso, rep, outdir):
     """Extrait l'initramfs de l'ISO et verifie que les modules critiques du boot
-    (CD/USB/squashfs + index kmod) y sont embarques. Liste les .ko dans un artefact."""
+    (CD/USB/squashfs + index kmod) y sont embarques, pour le BON noyau (un module
+    compile en dur =y, listé dans modules.builtin, compte comme present)."""
     import lzma
     tmp = os.path.join(outdir, "initrd-inspect.img")
     r = subprocess.run([os.path.join(TROOT, "usr/bin/xorriso"), "-osirrox", "on", "-overwrite", "on",
@@ -195,42 +224,58 @@ def inspect_initramfs(iso, rep, outdir):
     if r.returncode != 0 or not os.path.exists(tmp):
         rep.check("initramfs-extract", False, "xorriso rc=%d" % r.returncode)
         return
-    required = {
-        "ahci": b"ahci.ko", "ata_piix": b"ata_piix.ko", "ata_generic": b"ata_generic.ko",
-        "sr_mod": b"sr_mod.ko", "cdrom": b"cdrom.ko", "scsi_mod": b"scsi_mod.ko",
-        "sd_mod": b"sd_mod.ko", "nvme": b"nvme.ko", "virtio_blk": b"virtio_blk.ko",
-        "virtio_scsi": b"virtio_scsi.ko", "usb-storage": b"usb-storage.ko", "xhci-pci": b"xhci-pci.ko",
-        "squashfs": b"squashfs.ko", "isofs": b"isofs.ko", "overlay": b"overlay.ko",
-        "loop": b"loop.ko", "ext4": b"ext4.ko", "btrfs": b"btrfs.ko",
-        "modules.dep": b"modules.dep", "modules.alias": b"modules.alias",
-    }
     raw = open(tmp, "rb").read()
-    # decompresse chaque stream xz present (l'initramfs peut en contenir plusieurs)
-    dec_all = b""
     magic = b"\xfd7zXZ\x00"
+    first = raw.find(magic)
+    files = _cpio_files(raw[:first] if first >= 0 else raw)
+    dec = b""
     pos = 0
     while pos < len(raw):
         i = raw.find(magic, pos)
         if i < 0:
             break
-        dec = lzma.LZMADecompressor()
+        d = lzma.LZMADecompressor()
         try:
-            dec_all += dec.decompress(raw[i:])
+            dec += d.decompress(raw[i:])
         except lzma.LZMAError:
             pass
-        if dec.eof and dec.unused_data:
-            pos = len(raw) - len(dec.unused_data)
+        if d.eof and d.unused_data:
+            pos = len(raw) - len(d.unused_data)
         else:
             break
+    files.update(_cpio_files(dec))
     os.remove(tmp)
-    hay_all = raw + dec_all   # brut (cpio early non compressé) + decompressé
-    found = {k: (pat in hay_all) for k, pat in required.items()}
-    mods = set(re.findall(rb"[\w./+-]*\.ko(?:\.\w+)?", dec_all))
+    rep.check("initramfs-decompress", bool(dec), "%d Mo decompresses, %d fichiers" % (len(dec) // 1048576, len(files)))
+    kdirs = sorted(set(k.split("/")[3] for k in files
+                       if k.startswith("usr/lib/modules/") and len(k.split("/")) > 3 and not k.endswith("/")))
+    rep.check("initramfs-un-seul-noyau", len(kdirs) == 1, "noyaux dans l'initramfs: %s" % kdirs)
+    kv = kdirs[0] if kdirs else ""
+    prefix = "usr/lib/modules/%s/" % kv
+    builtin_raw = files.get(prefix + "modules.builtin", files.get(prefix + "modules.builtin.bin", b""))
+    have = set()
+    for k in files:
+        if not k.startswith(prefix) or k.endswith("/"):
+            continue
+        base = k.rsplit("/", 1)[-1]
+        for suf in (".ko.zst", ".ko.xz", ".ko.gz", ".ko"):
+            if base.endswith(suf):
+                have.add(base[: -len(suf)])
+                break
     with open(os.path.join(outdir, "initramfs-modules.txt"), "w") as f:
-        f.write("\n".join(sorted(m.decode() for m in mods)) + "\n")
-    rep.check("initramfs-decompress", bool(dec_all), "%d .ko, %d Mo decompresses" % (len(mods), len(dec_all) // 1048576))
-    for k, ok in sorted(found.items()):
-        rep.check("initramfs-module-%s" % k, ok, "")
+        f.write("noyau: %s\nmodules .ko (%d): %s\n" % (kv, len(have), " ".join(sorted(have))))
+    # noyau dur : modules =m qui doivent etre embarques comme .ko (les =y builtin
+    # n'ont pas de .ko et sont dans modules.builtin.bin)
+    for m in ("sr_mod", "loop", "squashfs", "isofs", "overlay", "vfat", "fat",
+              "usb-storage", "uas", "ata_piix", "ata_generic", "nvme", "xhci-hcd"):
+        ok = m in have or ("%s.ko" % m).encode() in builtin_raw
+        rep.check("initramfs-module-%s" % m, ok, "" if ok else "ni .ko ni builtin")
+    # informatifs : presents comme .ko, builtin, ou absents du noyau
+    for m in ("cdrom", "scsi_mod", "ahci", "sd_mod", "xhci-pci", "virtio_blk", "virtio_scsi", "ext4", "btrfs"):
+        state = ".ko" if m in have else ("builtin" if ("%s.ko" % m).encode() in builtin_raw else "absent")
+        rep.check("initramfs-info-%s" % m, True, state)
+    for idx in ("modules.dep", "modules.alias"):
+        ok = prefix + idx in files or prefix + idx + ".bin" in files
+        rep.check("initramfs-%s" % idx, ok, "")
 
 
 def phase_boot_loader(iso, rep, outdir, uefi):

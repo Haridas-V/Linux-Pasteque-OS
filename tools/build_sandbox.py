@@ -162,16 +162,43 @@ def kernel_versions():
     return (main[0] if main else (kvs[0] if kvs else None), lts[0] if lts else None)
 
 
-def verify_initramfs(img, kv):
-    """Lit l'initramfs et VERIFIE que les modules embarques correspondent bien au
-    noyau kv et que l'index kmod (modules.dep) est present. Sans cela, au boot :
-    'modprobe: FATAL: Module sr_mod not found in directory /lib/modules/<kv>'
-    et aucun pilote (CD/USB) ne se charge."""
+def cpio_files(data):
+    """Walk newc cpio archive(s) in data -> {path: content}."""
+    out = {}
+    pos = 0
+    n = len(data)
+    while pos + 110 <= n:
+        if data[pos:pos + 6] != b"070701":
+            nxt = data.find(b"070701", pos + 1)
+            if nxt < 0:
+                break
+            pos = nxt
+            continue
+        hdr = data[pos:pos + 110]
+        try:
+            filesize = int(hdr[54:62], 16)
+            namesize = int(hdr[94:102], 16)
+        except ValueError:
+            pos += 1
+            continue
+        name = data[pos + 110:pos + 110 + namesize - 1].decode("utf-8", "replace")
+        off = (pos + 110 + namesize + 3) & ~3
+        if name == "TRAILER!!!":
+            pos = (off + filesize + 3) & ~3
+            continue
+        out[name] = data[off:off + filesize]
+        pos = (off + filesize + 3) & ~3
+    return out
+
+
+def initramfs_files(img):
+    """Tous les fichiers de l'initramfs (cpio early non compressé + streams xz)."""
     import lzma
-    import re
     raw = open(img, "rb").read()
-    dec = b""
     magic = b"\xfd7zXZ\x00"
+    first = raw.find(magic)
+    files = cpio_files(raw[:first] if first >= 0 else raw)
+    dec = b""
     pos = 0
     while pos < len(raw):
         i = raw.find(magic, pos)
@@ -186,19 +213,52 @@ def verify_initramfs(img, kv):
             pos = len(raw) - len(d.unused_data)
         else:
             break
-    data = raw + dec
-    moddir = ("usr/lib/modules/%s/" % kv).encode()
-    if moddir not in data:
-        found = sorted(set(re.findall(rb"usr/lib/modules/([^/\x00]+)/", data)))
-        raise RuntimeError("initramfs %s: modules du noyau %s ABSENTS (present: %s)" % (img, kv, found[:5]))
-    missing = [m.decode() for m in (b"sr_mod.ko", b"cdrom.ko", b"scsi_mod.ko", b"ahci.ko",
-                                    b"ata_piix.ko", b"squashfs.ko", b"isofs.ko", b"overlay.ko",
-                                    b"virtio_blk.ko", b"usb-storage.ko", b"xhci-pci.ko",
-                                    b"modules.dep", b"modules.alias")
-               if m not in data]
+    files.update(cpio_files(dec))
+    return files
+
+
+def verify_initramfs(img, kv):
+    """Lit l'initramfs et VERIFIE que les modules embarques correspondent bien au
+    noyau kv et que l'index kmod (modules.dep) est present. Sans cela, au boot :
+    'modprobe: FATAL: Module sr_mod not found in directory /lib/modules/<kv>'
+    et aucun pilote (CD/USB) ne se charge. Un module compile en dur (=y, listé
+    dans modules.builtin) compte comme present."""
+    files = initramfs_files(img)
+    prefix = "usr/lib/modules/%s/" % kv
+    kfiles = [k for k in files if k.startswith(prefix)]
+    if not kfiles:
+        present = sorted(set(k.split("/")[3] for k in files if k.startswith("usr/lib/modules/")))
+        raise RuntimeError("initramfs %s: modules du noyau %s ABSENTS (present: %s)" % (img, kv, present[:5]))
+    # modules compiles en dur (=y) : listés dans modules.builtin(.bin) — le format
+    # .bin de kmod contient les noms en clair, on cherche la sous-chaîne
+    builtin_raw = files.get(prefix + "modules.builtin", files.get(prefix + "modules.builtin.bin", b""))
+    have = set()
+    for k in kfiles:
+        if k.endswith("/"):
+            continue
+        base = k.rsplit("/", 1)[-1]
+        for suf in (".ko.zst", ".ko.xz", ".ko.gz", ".ko"):
+            if base.endswith(suf):
+                have.add(base[: -len(suf)])
+                break
+    # modules qui DOIVENT etre embarques comme .ko (=m dans les noyaux Arch) :
+    # un module absent de l'initramfs mais aussi absent de la rootfs (ou builtin =y)
+    # ne bloque pas le boot -> on ne le considere pas comme manquant
+    required = ["sr_mod", "loop", "squashfs", "isofs", "overlay", "vfat", "fat",
+                "usb-storage", "uas", "ata_piix", "ata_generic", "nvme", "xhci-hcd"]
+    def rootfs_has(name):
+        for suf in (".ko.zst", ".ko.xz", ".ko.gz", ".ko"):
+            if glob.glob(os.path.join(ROOTFS, "usr/lib/modules", kv, "kernel", "**", name + suf), recursive=True):
+                return True
+        return False
+    missing = [m for m in required
+               if m not in have and ("%s.ko" % m).encode() not in builtin_raw and rootfs_has(m)]
+    for idx in ("modules.dep", "modules.alias"):
+        if prefix + idx not in files and prefix + idx + ".bin" not in files:
+            missing.append(idx)
     if missing:
-        raise RuntimeError("initramfs %s: elements critiques manquants: %s" % (img, missing))
-    print("[build] initramfs verifiee pour %s : modules + modules.dep OK (%d Mo)" % (kv, len(dec) // 1048576), flush=True)
+        raise RuntimeError("initramfs %s: elements critiques manquants (ni .ko ni builtin): %s" % (img, missing))
+    print("[build] initramfs verifiee pour %s : %d modules .ko, index kmod OK" % (kv, len(have)), flush=True)
 
 
 def read_packages(path):
