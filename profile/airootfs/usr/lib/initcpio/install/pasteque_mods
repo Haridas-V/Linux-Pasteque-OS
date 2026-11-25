@@ -1,18 +1,9 @@
 #!/usr/bin/bash
 # Hook Pasteque (build) : embarque explicitement les modules critiques du boot live
-# (CD SATA/IDE, USB, NVMe, squashfs/overlay...). Resolution par chemin .ko pour ne pas
-# dependre des index kmod (depmod peut ne pas avoir tourne dans le chroot de build).
+# (CD SATA/IDE, USB, NVMe, squashfs/overlay...). add_module se resout par NOM via
+# modinfo : depmod tourne dans la rootfs AVANT mkinitcpio (voir step_initramfs).
 # (tools/build_sandbox.py reecrit ce fichier au build avec le meme contenu)
 build() {
     add_runscript
-    local m p kv
-    kv="${KERNELVERSION:-$(ls /usr/lib/modules 2>/dev/null | head -1)}"
-    for m in sr_mod cdrom scsi_mod ata_piix ata_generic ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3 usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net; do
-        p=$(find "/usr/lib/modules/$kv/kernel" -name "$m.ko*" 2>/dev/null | head -n1)
-        if [ -n "$p" ]; then
-            add_module "$p"
-        else
-            add_module "$m" 2>/dev/null || true
-        fi
-    done
+    add_module sr_mod cdrom scsi_mod ata_piix ata_generic ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3 usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net
 }

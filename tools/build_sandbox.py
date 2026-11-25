@@ -45,20 +45,11 @@ COMPRESSION="xz"
 # (l'autodétection udev par modalias est peu fiable en VM/émulation).
 HOOK_INSTALL = r"""#!/usr/bin/bash
 # Hook Pasteque (build) : embarque explicitement les modules critiques du boot live
-# (CD SATA/IDE, USB, NVMe, squashfs/overlay...). Resolution par chemin .ko pour ne pas
-# dependre des index kmod (depmod peut ne pas avoir tourne dans le chroot de build).
+# (CD SATA/IDE, USB, NVMe, squashfs/overlay...). add_module se resout par NOM via
+# modinfo : depmod tourne dans la rootfs AVANT mkinitcpio (voir step_initramfs).
 build() {
     add_runscript
-    local m p kv
-    kv="${KERNELVERSION:-$(ls /usr/lib/modules 2>/dev/null | head -1)}"
-    for m in sr_mod cdrom scsi_mod ata_piix ata_generic ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3 usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net; do
-        p=$(find "/usr/lib/modules/$kv/kernel" -name "$m.ko*" 2>/dev/null | head -n1)
-        if [ -n "$p" ]; then
-            add_module "$p"
-        else
-            add_module "$m" 2>/dev/null || true
-        fi
-    done
+    add_module sr_mod cdrom scsi_mod ata_piix ata_generic ahci sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3 usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net
 }
 """
 
@@ -152,6 +143,62 @@ def run(cmd, **kw):
 
 def chroot(cmd, **kw):
     return run([os.path.join(TOOLS, "chroot.sh"), ROOTFS] + cmd, **kw)
+
+
+def chroot_out(cmd):
+    r = run([os.path.join(TOOLS, "chroot.sh"), ROOTFS, "/bin/bash", "-c", cmd],
+            capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+def kernel_versions():
+    """Retourne (kver principal non-LTS, kver LTS ou None) presentes dans la rootfs.
+    IMPORTANT : ne PAS faire 'ls /usr/lib/modules | head -1' en shell : le tri
+    alphabetique met le noyau LTS (6.x) avant le principal (7.x) et on construirait
+    une initramfs pour le mauvais noyau (aucun module ne chargerait au boot)."""
+    kvs = [l.strip() for l in chroot_out("ls /usr/lib/modules 2>/dev/null").splitlines() if l.strip()]
+    main = [k for k in kvs if "-lts" not in k]
+    lts = [k for k in kvs if "-lts" in k]
+    return (main[0] if main else (kvs[0] if kvs else None), lts[0] if lts else None)
+
+
+def verify_initramfs(img, kv):
+    """Lit l'initramfs et VERIFIE que les modules embarques correspondent bien au
+    noyau kv et que l'index kmod (modules.dep) est present. Sans cela, au boot :
+    'modprobe: FATAL: Module sr_mod not found in directory /lib/modules/<kv>'
+    et aucun pilote (CD/USB) ne se charge."""
+    import lzma
+    import re
+    raw = open(img, "rb").read()
+    dec = b""
+    magic = b"\xfd7zXZ\x00"
+    pos = 0
+    while pos < len(raw):
+        i = raw.find(magic, pos)
+        if i < 0:
+            break
+        d = lzma.LZMADecompressor()
+        try:
+            dec += d.decompress(raw[i:])
+        except lzma.LZMAError:
+            pass
+        if d.eof and d.unused_data:
+            pos = len(raw) - len(d.unused_data)
+        else:
+            break
+    data = raw + dec
+    moddir = ("usr/lib/modules/%s/" % kv).encode()
+    if moddir not in data:
+        found = sorted(set(re.findall(rb"usr/lib/modules/([^/\x00]+)/", data)))
+        raise RuntimeError("initramfs %s: modules du noyau %s ABSENTS (present: %s)" % (img, kv, found[:5]))
+    missing = [m.decode() for m in (b"sr_mod.ko", b"cdrom.ko", b"scsi_mod.ko", b"ahci.ko",
+                                    b"ata_piix.ko", b"squashfs.ko", b"isofs.ko", b"overlay.ko",
+                                    b"virtio_blk.ko", b"usb-storage.ko", b"xhci-pci.ko",
+                                    b"modules.dep", b"modules.alias")
+               if m not in data]
+    if missing:
+        raise RuntimeError("initramfs %s: elements critiques manquants: %s" % (img, missing))
+    print("[build] initramfs verifiee pour %s : modules + modules.dep OK (%d Mo)" % (kv, len(dec) // 1048576), flush=True)
 
 
 def read_packages(path):
@@ -329,9 +376,7 @@ def step_initramfs():
     # index kmod (depmod) dans la rootfs AVANT mkinitcpio : indispensable pour
     # add_module/modinfo/udev quand le hook pacman 'depmod' ne tourne pas en chroot
     chroot(["/bin/bash", "-c",
-            "for kv in $(ls /usr/lib/modules 2>/dev/null); do depmod -a \"$kv\" 2>/dev/null; done; "
-            "kv=$(ls /usr/lib/modules | grep -v -- -lts | head -1); "
-            "ln -sf /usr/lib/modules/$kv/vmlinuz /boot/vmlinuz-linux; true"])
+            "for kv in $(ls /usr/lib/modules 2>/dev/null); do depmod -a \"$kv\" 2>/dev/null; done; true"])
     # chroot sans /proc/self/fd : patch des substitutions de processus de mkinitcpio
     run([sys.executable, os.path.join(TOOLS, "patch_initcpio.py"),
          os.path.join(ROOTFS, "usr/lib/initcpio/functions")])
@@ -347,18 +392,26 @@ def step_initramfs():
     os.makedirs(os.path.join(ROOTFS, "etc/mkinitcpio.d"), exist_ok=True)
     with open(os.path.join(ROOTFS, "etc/mkinitcpio.d/archiso.preset"), "w") as f:
         f.write(MKINITCPIO_PRESET)
-    chroot(["/usr/bin/mkinitcpio", "-c", "/etc/mkinitcpio.conf", "-k", "/boot/vmlinuz-linux", "-g", "/boot/initramfs-linux.img"])
+    # noyau explicite (PAS 'ls | head -1' : le LTS se trie avant le principal et on
+    # construirait une initramfs pour le mauvais noyau -> aucun module au boot)
+    kv, kvl = kernel_versions()
+    assert kv, "aucun noyau dans la rootfs"
+    print("[build] noyaux: principal=%s lts=%s" % (kv, kvl), flush=True)
+    chroot(["/bin/bash", "-c",
+            "ln -sf /usr/lib/modules/%s/vmlinuz /boot/vmlinuz-linux; "
+            "if [ -n '%s' ]; then ln -sf /usr/lib/modules/%s/vmlinuz /boot/vmlinuz-lts; fi" % (kv, kvl or "", kvl or "")])
+    chroot(["/usr/bin/mkinitcpio", "-c", "/etc/mkinitcpio.conf", "-k", kv, "-g", "/boot/initramfs-linux.img"])
     img = os.path.join(ROOTFS, "boot/initramfs-linux.img")
     assert os.path.exists(img), "initramfs manquante"
+    verify_initramfs(img, kv)   # leve une erreur si modules != noyau kv
     print("[build] initramfs OK:", os.path.getsize(img) // 1024 // 1024, "MiB", flush=True)
     # noyau LTS de secours : symlink + initramfs dediee (entree GRUB de secours)
-    chroot(["/bin/bash", "-c",
-            "kvl=$(ls /usr/lib/modules | grep -i lts | head -1); "
-            "if [ -n \"$kvl\" ]; then ln -sf /usr/lib/modules/$kvl/vmlinuz /boot/vmlinuz-lts; "
-            "mkinitcpio -c /etc/mkinitcpio.conf -k /boot/vmlinuz-lts -g /boot/initramfs-lts.img; fi"])
-    lts_img = os.path.join(ROOTFS, "boot/initramfs-lts.img")
-    if os.path.exists(lts_img):
-        print("[build] initramfs LTS OK:", os.path.getsize(lts_img) // 1024 // 1024, "MiB", flush=True)
+    if kvl:
+        chroot(["/usr/bin/mkinitcpio", "-c", "/etc/mkinitcpio.conf", "-k", kvl, "-g", "/boot/initramfs-lts.img"])
+        lts_img = os.path.join(ROOTFS, "boot/initramfs-lts.img")
+        if os.path.exists(lts_img):
+            verify_initramfs(lts_img, kvl)
+            print("[build] initramfs LTS OK:", os.path.getsize(lts_img) // 1024 // 1024, "MiB", flush=True)
     else:
         print("[build] pas de noyau LTS, entree de secours ignoree", flush=True)
 
@@ -410,21 +463,23 @@ def step_iso():
         shutil.rmtree(iso, ignore_errors=True)
     for d in ["arch/x86_64", "boot/x86_64", "boot/isolinux", "boot/grub"]:
         os.makedirs(os.path.join(iso, d), exist_ok=True)
-    kver_dir = sorted(glob.glob(os.path.join(ROOTFS, "usr/lib/modules/*")))[-1]
-    kernel_src = os.path.join(ROOTFS, "boot/vmlinuz-linux")
-    if not os.path.exists(kernel_src):
-        kernel_src = os.path.join(kver_dir, "vmlinuz")
+    # noyau de l'ISO = noyau principal (non-LTS) de la rootfs, explicitement
+    kv, kvl = kernel_versions()
+    assert kv, "aucun noyau dans la rootfs"
+    kernel_src = os.path.join(ROOTFS, "usr/lib/modules", kv, "vmlinuz")
+    assert os.path.exists(kernel_src), "noyau %s introuvable" % kv
     shutil.copy2(kernel_src, os.path.join(iso, "boot/x86_64/vmlinuz-linux"))
     initrd_src = os.path.join(ROOTFS, "boot/initramfs-linux.img")
     assert os.path.exists(initrd_src), "initramfs manquante: lancez d'abord l'étape initramfs"
+    verify_initramfs(initrd_src, kv)   # coherence noyau <-> initramfs, sinon boot sans pilotes
     shutil.copy2(initrd_src, os.path.join(iso, "boot/x86_64/initramfs-linux.img"))
     # noyau LTS de secours dans l'ISO aussi
-    lts_kernel = os.path.join(ROOTFS, "boot/vmlinuz-lts")
-    lts_initrd = os.path.join(ROOTFS, "boot/initramfs-lts.img")
-    have_lts = os.path.exists(lts_kernel) and os.path.exists(lts_initrd)
-    if have_lts:
-        shutil.copy2(lts_kernel, os.path.join(iso, "boot/x86_64/vmlinuz-lts"))
-        shutil.copy2(lts_initrd, os.path.join(iso, "boot/x86_64/initramfs-lts.img"))
+    if kvl:
+        lts_kernel = os.path.join(ROOTFS, "usr/lib/modules", kvl, "vmlinuz")
+        lts_initrd = os.path.join(ROOTFS, "boot/initramfs-lts.img")
+        if os.path.exists(lts_kernel) and os.path.exists(lts_initrd):
+            shutil.copy2(lts_kernel, os.path.join(iso, "boot/x86_64/vmlinuz-lts"))
+            shutil.copy2(lts_initrd, os.path.join(iso, "boot/x86_64/initramfs-lts.img"))
 
     # restaure le helper setuid de dbus (illisible sinon depuis le cache pacman)
     import tarfile as _tf

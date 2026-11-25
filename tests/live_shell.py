@@ -311,9 +311,11 @@ def phase_live_and_install(iso, rep, outdir):
         os.remove(sock)
     proc = qemu_base([
         "-kernel", kernel, "-initrd", initrd,
-        # rdinit (pas init=) : /bin/bash vraiment en PID1 de l'initramfs, sans passer
-        # par /init -> on controle nous-memes les modprobe/montages ci-dessous
-        "-append", "archisolabel=PASTEQUE archisobasedir=arch console=ttyS0,115200 rdinit=/bin/bash",
+        # init= (PAS rdinit= : avec rdinit=/bin/bash le noyau panic 'Unable to mount root fs').
+        # Label volontairement bidon : le hook archiso ne trouve pas le medium, attend 30s
+        # puis nous laisse son shell [rootfs ~]# — mais notre hook pasteque_mods a deja
+        # charge tous les pilotes, donc /dev/sr0 existe et on monte le medium nous-memes.
+        "-append", "archisolabel=PASTEQUEZZZ archisobasedir=arch console=ttyS0,115200 init=/bin/bash",
         "-cdrom", iso, "-boot", "d",
         "-drive", "file=%s,if=virtio" % vda,
         "-drive", "file=%s,if=virtio" % vdb,

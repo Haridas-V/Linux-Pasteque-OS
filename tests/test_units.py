@@ -313,9 +313,16 @@ def test_initramfs_hooks_cd_boot():
     rt = open(os.path.join(REPO, hooks[1]), encoding="utf-8").read()
     assert "archisolabel" in rt and "by-label" in rt, "le hook runtime doit attendre le medium labellisé"
     assert "insmod" in rt, "fallback insmod par chemin .ko manquant"
+    inst = open(os.path.join(REPO, hooks[0]), encoding="utf-8").read()
+    assert "add_module sr_mod" in inst, "add_module par nom requis (les chemins .ko font échouer mkinitcpio)"
     src = open(os.path.join(REPO, "tools/build_sandbox.py"), encoding="utf-8").read()
     assert "depmod -a" in src, "depmod doit tourner dans la rootfs avant mkinitcpio (index kmod)"
-    assert 'add_module "$p"' in src, "add_module par chemin .ko manquant dans le hook build"
+    # regression: l'initramfs doit etre construite pour le MEME noyau que celui de l'ISO
+    # (avant: 'ls | head -1' prenait le LTS -> initramfs/modules pour le mauvais noyau
+    #  -> 'modprobe: FATAL: Module sr_mod not found' -> pas de CD au boot)
+    assert "def kernel_versions" in src and '"-lts" not in k' in src
+    assert "def verify_initramfs" in src, "verification noyau<->initramfs manquante"
+    assert "verify_initramfs(initrd_src, kv)" in src, "step_iso doit verifier la coherence noyau/initramfs"
 
 
 if __name__ == "__main__":

@@ -18,6 +18,16 @@ Dernier commit : voir `git log -1`. Dernier run CI vert connu : `45671411328` (8
 - [x] `tests/live_shell.py` : inspection des modules de l'initramfs (artefact + checks), log serial live
   complet, phase live en `rdinit=/bin/bash` + ISO en disque virtio de secours, boot chargeur avec CD sur
   AHCI explicite ; 19 tests unitaires PASS en local (nouveau: hooks initramfs)
+- [x] **CAUSE RACINE boot CD/USB trouvée et prouvée en local** : l'initramfs était construite
+  pour le noyau LTS (6.18.65) alors que l'ISO embarque le noyau 7.3.6 (`ls | head -1` triait le LTS
+  en premier) → au boot `modprobe: FATAL: Module sr_mod not found in directory /lib/modules/7.3.6-arch1-1`
+  → pas de sr0 → archiso « device did not show up after 30 seconds ». Preuve : boot local du noyau LTS
+  6.18.65 + cette initramfs + CD → « Device '/dev/disk/by-label/PASTEQUE' mounted successfully »
+  (artefact /tmp/ser-lts.txt). Fix : sélection explicite du noyau non-LTS + `verify_initramfs()`
+  au build (échoue le build si modules != noyau de l'ISO) + `depmod -a` avant mkinitcpio
+- [x] `add_module` par chemin .ko = erreur mkinitcpio (exit 1) → retour à `add_module` par nom
+- [x] `rdinit=/bin/bash` fait paniquer le noyau (« Unable to mount root fs ») → on garde `init=`
+  (testé en local) ; phase live avec label bidon PASTEQUEZZZ pour garder le shell archiso
 - [ ] Run CI `45692017151` (9a58a4c) en cours — objectif FAILS=0 (boot BIOS/UEFI depuis CD inclus)
 - [ ] Run CI suivant : validation boot USB xHCI réel
 - [ ] Validation matériel : `docs/POINTS_A_VALIDER_EN_MATERIEL.md` (GPU réel, Fortnite serveurs Epic, SB avec MOK, dual-boot, LUKS, 1440p/240Hz, manettes)
