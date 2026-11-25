@@ -38,7 +38,11 @@ def boot_mode(usb, sock, outdir, name, timeout, uefi):
     qemu = [os.path.join(TROOT, "usr/bin/qemu-system-x86_64"),
             "-L", os.path.join(TROOT, "usr/share/qemu"),
             "-machine", "q35", "-m", "3072", "-smp", "2",
-            "-drive", "file=%s,format=raw,if=virtio" % usb,
+            # la cle USB reelle est un peripherique USB mass-storage (pas virtio) :
+            # controleur xHCI + usb-storage, comme sur une vraie machine
+            "-device", "qemu-xhci,id=pq-xhci",
+            "-drive", "if=none,id=pq-usb,format=raw,file=%s" % usb,
+            "-device", "usb-storage,drive=pq-usb",
             "-display", "none", "-vga", "std", "-no-reboot",
             "-serial", "unix:%s,server,nowait" % sock]
     if uefi:
