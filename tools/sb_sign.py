@@ -39,11 +39,12 @@ def run(cmd, **kw):
 
 
 def ensure_tools():
+    # degradation gracieuse : sans sbsign on signe quand meme les modules (openssl),
+    # le boot Secure Boot complet necessite sbsign (paquet sbsigntool) mais le build ne casse pas.
     if not SBSIGN:
-        print("[sb] sbsign absent -> lancez d'abord: python3 tools/fetch_deb_tools.py", file=sys.stderr)
-        sys.exit(1)
+        print("[sb] sbsign absent (paquet sbsigntool) -> EFI/noyaux NON signes, modules signes quand meme", file=sys.stderr)
     if not OPENSSL:
-        print("[sb] openssl absent -> fetch_deb_tools.py ou openssl système", file=sys.stderr)
+        print("[sb] openssl absent -> aucune signature, SB off requis", file=sys.stderr)
         sys.exit(1)
 
 
@@ -144,7 +145,10 @@ def main():
     skip_modules = "--skip-modules" in sys.argv
     ensure_tools()
     key, crt = ensure_key()
-    sign_efi_and_kernels(key, crt)
+    if SBSIGN:
+        sign_efi_and_kernels(key, crt)
+    else:
+        print("[sb] sbsign absent -> signature EFI/noyaux sautee", flush=True)
     if not skip_modules:
         sign_all_modules(key, crt)
     print("[sb] OK", flush=True)

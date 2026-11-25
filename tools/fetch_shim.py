@@ -26,6 +26,51 @@ def fetch(url, dest, timeout=300):
             f.write(c)
 
 
+
+
+def extract_deb(path):
+    """Parse un .deb (ar) en pur Python -> {nom: bytes}."""
+    out = {}
+    with open(path, "rb") as f:
+        magic = f.read(8)
+        assert magic == b"!<arch>\n", "pas un .deb ar"
+        while True:
+            hdr = f.read(60)
+            if len(hdr) < 60:
+                break
+            name = hdr[0:16].decode().strip()
+            size = int(hdr[48:58].decode().strip())
+            data = f.read(size)
+            if size % 2:
+                f.read(1)
+            out[name.rstrip("/")] = data
+    return out
+
+
+def decompress(data):
+    import io
+    if data[:4] == b"\xfd7zXZ":  # xz
+        import lzma
+        return lzma.decompress(data)
+    if data[:4] == b"\x28\xb5\x2f\xfd":  # zstd
+        try:
+            import zstandard
+            return zstandard.ZstdDecompressor().decompress(data)
+        except ImportError:
+            # repli : outil zstd système
+            import subprocess, tempfile
+            with tempfile.NamedTemporaryFile(delete=False) as tf:
+                tf.write(data)
+                tmp = tf.name
+            r = subprocess.run(["zstd", "-d", "-c", tmp], capture_output=True, check=True)
+            os.unlink(tmp)
+            return r.stdout
+    if data[:2] == b"\x1f\x8b":  # gzip
+        import gzip
+        return gzip.decompress(data)
+    return data
+
+
 def main():
     dest_dir = os.path.join(REPO, "work", "shim")
     os.makedirs(dest_dir, exist_ok=True)
@@ -43,12 +88,22 @@ def main():
     with tempfile.TemporaryDirectory() as td:
         dpath = os.path.join(td, deb)
         fetch(POOL + deb, dpath)
-        subprocess.run(["ar", "x", dpath, "data.tar.zst"], cwd=td, check=True)
-        subprocess.run(["tar", "-xf", "data.tar.zst", "-C", td,
-                        "./usr/lib/shim/shimx64.efi.signed", "./usr/lib/shim/mmx64.efi.signed"], check=True)
-        import shutil
-        shutil.copy2(os.path.join(td, "usr/lib/shim/shimx64.efi.signed"), os.path.join(dest_dir, "shimx64.efi"))
-        shutil.copy2(os.path.join(td, "usr/lib/shim/mmx64.efi.signed"), os.path.join(dest_dir, "mmx64.efi"))
+        members = extract_deb(dpath)  # dict nom -> bytes, sans outil externe
+        import tarfile, io
+        data = members.get("data.tar.zst") or members.get("data.tar.xz") or members.get("data.tar.gz")
+        if data is None:
+            raise RuntimeError("data.tar.* introuvable dans le .deb")
+        tf = tarfile.open(fileobj=io.BytesIO(decompress(data)), mode="r|*")
+        wanted = {"./usr/lib/shim/shimx64.efi.signed": "shimx64.efi",
+                  "./usr/lib/shim/mmx64.efi.signed": "mmx64.efi"}
+        got = {}
+        for m in tf:
+            if m.name in wanted:
+                got[wanted[m.name]] = tf.extractfile(m).read()
+        if "shimx64.efi" not in got:
+            raise RuntimeError("shimx64.efi.signed absent du paquet")
+        for name, blob in got.items():
+            open(os.path.join(dest_dir, name), "wb").write(blob)
     print("[shim] OK ->", dest_dir, flush=True)
 
 

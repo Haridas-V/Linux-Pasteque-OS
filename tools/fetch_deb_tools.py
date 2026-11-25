@@ -30,7 +30,7 @@ DEFAULT_PACKAGES = [
     "mtools", "dosfstools", "squashfs-tools", "cpio", "rsync",
     "syslinux-common", "syslinux", "isolinux", "syslinux-utils",
     # Secure Boot : signature EFI (sbsign) + CMS modules + openssl
-    "sbsigntools", "openssl", "python3-cryptography",
+    "sbsigntool", "openssl", "python3-cryptography",
     # compression libs used by the tools above
     "zstd", "xz-utils", "libzstd1", "liblzma5", "bzip2",
     # VM tests

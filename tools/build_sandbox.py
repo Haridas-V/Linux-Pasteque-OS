@@ -528,7 +528,9 @@ def step_secureboot():
     r = run([sys.executable, os.path.join(TOOLS, "fetch_shim.py")], check=False)
     if r.returncode != 0 or not os.path.exists(os.path.join(WORK, "shim", "shimx64.efi")):
         print("[build] shim indisponible (reseau ?) -> mode sans shim, SB off requis", flush=True)
-    run([sys.executable, os.path.join(TOOLS, "sb_sign.py")])
+    r = run([sys.executable, os.path.join(TOOLS, "sb_sign.py")], check=False)
+    if r.returncode != 0:
+        print("[build] sb_sign a echoue (non bloquant) -> ISO sans signature SB", flush=True)
 
 
 STEPS = {
