@@ -10,6 +10,7 @@ Dernier commit : voir `git log -1`. Dernier run CI vert connu : `487971d7` (+ `2
 - Rapport sprint : `docs/SPRINT_RAPPORT.md`
 
 ## En cours / ouvert
-- [ ] Diagnostic boot CD en QEMU (boot-bios/uefi-chargeur, live-mount, BOOT_NOT_CONFIRMED) — logs dispos via artifact `test-logs` du prochain run vert ; boot USB (chemin réel Etcher) OK
-- [ ] Run CI vert final avec toutes les features (en cours : fc320f2 puis 326d93d)
+- [x] Diagnostic boot CD QEMU résolu : cause = `ata_piix` absent du initramfs (logs serial lus via artifact `test-logs`) → ajouté au hook `pasteque_mods` (commit `49277ff`). Boot USB (chemin réel Etcher) toujours OK (`USB_BOOT_OK`/`USB_UEFI_BOOT_OK`)
+- [x] Run `45613769714` (2801011) VERT : 18/18 unitaires, ISO 5841 MiB, shim+SB embarqués, ETCHER_COMPATIBLE, USB_BOOT_OK+USB_UEFI_BOOT_OK, FAILS=3→0 attendu avec 49277ff (boot CD)
+- [ ] Run vert de `49277ff` (fix boot CD) — en cours
 - [ ] Validation matériel : `docs/POINTS_A_VALIDER_EN_MATERIEL.md` (GPU réel, Fortnite serveurs Epic, SB avec MOK, dual-boot, LUKS, 1440p/240Hz, manettes)

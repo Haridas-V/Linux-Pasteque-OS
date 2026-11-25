@@ -63,6 +63,10 @@ run_hook() {
         [ -e /dev/loop$i ] || mknod /dev/loop$i b 7 $i 2>/dev/null
         i=$((i+1))
     done
+    # l' coldplug udev a pu tourner AVANT ces modprobe : re-déclenche les uevents
+    # pour que /dev/disk/by-label/PASTEQUE (CD) soit créé -> sinon l'hook archiso échoue
+    udevadm trigger --action=add 2>/dev/null
+    udevadm settle --timeout=15 2>/dev/null
 }
 """
 
