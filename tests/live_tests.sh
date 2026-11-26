@@ -114,8 +114,8 @@ t earlyoom test -L /etc/systemd/system/multi-user.target.wants/earlyoom.service
 t polkit-update test -f /etc/polkit-1/rules.d/49-pasteque.rules
 t kernel-lts bash -c "ls -d /usr/lib/modules/*lts* >/dev/null 2>&1"
 t dualboot-luks bash -c "command -v os-prober && command -v cryptsetup && grep -q 'enableLuksAutomatedPartitioning: true' /etc/calamares/modules/partition.conf && grep -q 'GRUB_DISABLE_OS_PROBER=false' /etc/default/grub"
-t util-apps bash -c "pacman -Q kdeconnect-kde blueman flameshot gnome-disk-utility >/dev/null 2>&1"
-t apps-smoke bash -c "export QT_QPA_PLATFORM=offscreen; for a in pasteque-notes pasteque-minuteur pasteque-snake pasteque-monitor; do /usr/local/bin/$a --smoke >/dev/null 2>&1 || exit 1; done"
+t util-apps bash -c "pacman -Q kdeconnect blueman flameshot gnome-disk-utility >/dev/null 2>&1"
+t apps-smoke bash -c 'export QT_QPA_PLATFORM=offscreen; for a in pasteque-notes pasteque-minuteur pasteque-snake pasteque-monitor; do /usr/local/bin/$a --smoke >/dev/null 2>&1 || exit 1; done'
 t generateur-demo bash -c "export QT_QPA_PLATFORM=offscreen; HOME=/tmp/fakehome3 /usr/local/bin/pasteque-genere --smoke 2>&1 | grep -q 'smoke=OK'"
 t personnalise-dryrun /usr/local/bin/pasteque-personnalise --dry-run
 t wallpapers test -n "$(ls /usr/share/backgrounds/pasteque/*.png 2>/dev/null)"

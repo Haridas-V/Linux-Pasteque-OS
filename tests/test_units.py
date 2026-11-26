@@ -325,6 +325,24 @@ def test_initramfs_hooks_cd_boot():
     assert "verify_initramfs(initrd_src, kv)" in src, "step_iso doit verifier la coherence noyau/initramfs"
 
 
+def test_live_tests_no_unbound_vars():
+    """live_tests.sh tourne sous 'set -u' : un $var non echappe dans un bash -c "..."
+    est developpé par le PARENT -> 'unbound variable' et la batterie s'arrete.
+    (bug reel attrape en CI : '$a' dans la boucle apps-smoke)."""
+    path = os.path.join(REPO, "tests/live_tests.sh")
+    lines = open(path, encoding="utf-8").read().splitlines()
+    # variables definies dans le script (parent) -> autorisees dans les "..."
+    defined = set(re.findall(r"(?m)^([A-Z_a-z][A-Za-z0-9_]*)=", "\n".join(lines)))
+    bad = []
+    for i, line in enumerate(lines, 1):
+        for m in re.finditer(r'bash -c "([^"]*)"', line):
+            body = m.group(1)
+            for v in re.finditer(r'(?<!\\)\$([A-Za-z_][A-Za-z0-9_]*)', body):
+                if v.group(1) not in defined:
+                    bad.append("ligne %d: $%s non defini dans le parent" % (i, v.group(1)))
+    assert not bad, "variables non echappees dans bash -c \"...\": " + "; ".join(bad)
+
+
 if __name__ == "__main__":
     t("py_compile tous les scripts", compile_all)
     t("bash -n tous les scripts shell", bash_n_all)
@@ -345,6 +363,7 @@ if __name__ == "__main__":
     t("thème GRUB Pastèque + logo PNG + conf grub", test_grub_theme_and_logo)
     t("mises à jour manuelles par défaut (AUTO_UPDATE=0)", test_conf_manual_updates_default)
     t("hooks initramfs : modules boot CD/USB + depmod + attente medium", test_initramfs_hooks_cd_boot)
+    t("live_tests.sh : pas de $var non echappe dans bash -c (set -u)", test_live_tests_no_unbound_vars)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

@@ -266,11 +266,11 @@ def inspect_initramfs(iso, rep, outdir):
     # noyau dur : modules =m qui doivent etre embarques comme .ko (les =y builtin
     # n'ont pas de .ko et sont dans modules.builtin.bin)
     for m in ("sr_mod", "loop", "squashfs", "isofs", "overlay", "vfat", "fat",
-              "usb-storage", "uas", "ata_piix", "ata_generic", "nvme", "xhci-hcd"):
+              "usb-storage", "uas", "ata_piix", "ata_generic", "nvme"):
         ok = m in have or ("%s.ko" % m).encode() in builtin_raw
         rep.check("initramfs-module-%s" % m, ok, "" if ok else "ni .ko ni builtin")
-    # informatifs : presents comme .ko, builtin, ou absents du noyau
-    for m in ("cdrom", "scsi_mod", "ahci", "sd_mod", "xhci-pci", "virtio_blk", "virtio_scsi", "ext4", "btrfs"):
+    # informatifs : presents comme .ko, builtin, ou absents du noyau (renames =y)
+    for m in ("cdrom", "scsi_mod", "ahci", "sd_mod", "xhci-pci", "xhci-hcd", "virtio_blk", "virtio_scsi", "ext4", "btrfs"):
         state = ".ko" if m in have else ("builtin" if ("%s.ko" % m).encode() in builtin_raw else "absent")
         rep.check("initramfs-info-%s" % m, True, state)
     for idx in ("modules.dep", "modules.alias"):
