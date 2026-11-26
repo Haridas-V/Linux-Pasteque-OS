@@ -12,14 +12,22 @@ def lire_cpu():
     vals = list(map(int, p))
     total = sum(vals)
     idle = vals[3] + vals[4]
+    state = "/tmp/pasteque-cpu"
+    cpu = 0  # premiere lecture : pas de delta disponible
     try:
-        with open("/tmp/pasteque-cpu") as f:
+        with open(state) as f:
             pt, pi = map(int, f.read().split())
         dt = total - pt
-        return 0 if dt == 0 else round(100 * (1 - (idle - pi) / dt))
-    finally:
-        with open("/tmp/pasteque-cpu", "w") as f:
+        if dt > 0:
+            cpu = round(100 * (1 - (idle - pi) / dt))
+    except (OSError, ValueError):
+        pass
+    try:
+        with open(state, "w") as f:
             f.write("%d %d" % (total, idle))
+    except OSError:
+        pass
+    return max(0, min(100, cpu))
 
 
 def lire_ram():

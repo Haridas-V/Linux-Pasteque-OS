@@ -335,12 +335,28 @@ def test_live_tests_no_unbound_vars():
     defined = set(re.findall(r"(?m)^([A-Z_a-z][A-Za-z0-9_]*)=", "\n".join(lines)))
     bad = []
     for i, line in enumerate(lines, 1):
-        for m in re.finditer(r'bash -c "([^"]*)"', line):
+        # greedy : capture tout le corps meme s'il contient des \" echappes
+        for m in re.finditer(r'bash -c "(.*)"\s*$', line):
             body = m.group(1)
             for v in re.finditer(r'(?<!\\)\$([A-Za-z_][A-Za-z0-9_]*)', body):
                 if v.group(1) not in defined:
                     bad.append("ligne %d: $%s non defini dans le parent" % (i, v.group(1)))
     assert not bad, "variables non echappees dans bash -c \"...\": " + "; ".join(bad)
+
+
+def test_local_bin_all_executable():
+    """Tout script de profile/airootfs/usr/local/bin doit etre mode 100755 dans git,
+    sinon il n'est pas executable dans l'ISO (bug reel attrape en CI : pasteque-hub
+    en 100644 -> 'Permission denied' au lancement)."""
+    r = subprocess.run(["git", "-C", REPO, "ls-files", "-s", "profile/airootfs/usr/local/bin/"],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    bad = []
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and "pasteque-" in parts[3] and parts[0] != "100755":
+            bad.append("%s mode=%s" % (parts[3], parts[0]))
+    assert not bad, "scripts non executables en git: " + "; ".join(bad)
 
 
 if __name__ == "__main__":
@@ -364,6 +380,7 @@ if __name__ == "__main__":
     t("mises à jour manuelles par défaut (AUTO_UPDATE=0)", test_conf_manual_updates_default)
     t("hooks initramfs : modules boot CD/USB + depmod + attente medium", test_initramfs_hooks_cd_boot)
     t("live_tests.sh : pas de $var non echappe dans bash -c (set -u)", test_live_tests_no_unbound_vars)
+    t("usr/local/bin : tous les scripts pasteque-* en mode 755 dans git", test_local_bin_all_executable)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

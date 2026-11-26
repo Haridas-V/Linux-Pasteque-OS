@@ -561,6 +561,9 @@ def step_iso():
                             os.chmod(_p, 0o4755)
         except Exception as e:
             print("[iso] dbus helper:", e, flush=True)
+    # filet de securite : tous les scripts maison doivent etre EXECUTABLES dans l'ISO
+    # (un oubli de chmod +x en git rendrait l'app invisible au lancement)
+    chroot(["/bin/bash", "-c", "chmod +x /usr/local/bin/* 2>/dev/null; true"])
     # squashfs de l'airootfs (réutilisé si déjà présent et FORCE_SQUASHFS unset)
     if not os.path.exists(sfs) or os.environ.get("FORCE_SQUASHFS"):
         if os.path.exists(sfs):
