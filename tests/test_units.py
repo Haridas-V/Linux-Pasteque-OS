@@ -546,6 +546,38 @@ def test_finalize_extras_loud():
     assert "install-extras ||" in src and "exit 1" in src, "install-extras doit etre fatal"
 
 
+def test_no_masked_critical_commands():
+    """MISSION: aucun '|| true' / stderr jette sur les commandes qui compromettent
+    le systeme : root verrouille, pare-feu, sddm, locale FR, services pasteque,
+    creation user live, sha256 de l'ISO, import cle GPG quand une cle est fournie."""
+    fin = open(os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-finalize-install"), encoding="utf-8").read()
+    for bad in ("passwd -l root || true",
+                "systemctl enable firewalld 2>/dev/null || true",
+                "systemctl enable sddm 2>/dev/null || true",
+                "locale-gen 2>/dev/null || true",
+                "pasteque-bootcheck 2>/dev/null || true",
+                "pasteque-steamlibs.timer 2>/dev/null || true",
+                "os-prober >/dev/null 2>&1 || true"):
+        assert bad not in fin, "commande critique masquee dans finalize-install: %r" % bad
+    for good in ("passwd -l root ||", "systemctl enable firewalld ||", "systemctl enable sddm ||",
+                 "locale-gen ||", "pasteque-bootcheck ||", "exit 1"):
+        assert good in fin, "commande critique non rendue fatale: %r" % good
+    liv = open(os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-liveuser"), encoding="utf-8").read()
+    assert "|| true" not in liv, "liveuser masque encore une erreur (|| true)"
+    sig = open(os.path.join(REPO, "tools/sign_iso.sh"), encoding="utf-8").read()
+    assert "sha256 a echoue" in sig and "exit 1" in sig, "sign_iso.sh doit echouer si sha256 echoue"
+    assert "PASTEQUE_GPG_KEY fournie mais import impossible" in sig, "sign_iso.sh doit echouer si la cle CI est invalide"
+    # plus de '|| true' du tout dans les scripts systeme shell (hors tests/harnais)
+    import glob
+    for f in glob.glob(os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-*")):
+        if open(f, "rb").read(64).startswith(b"#!") and b"python" in open(f, "rb").read(64):
+            continue
+        src = open(f, encoding="utf-8", errors="replace").read()
+        if "os-prober" in src or "update-desktop-database" in src:
+            continue  # cas documentes : retour non-nul legitime / purement cosm\u00e9tique
+        assert "|| true" not in src, "|| true restant dans %s" % os.path.basename(f)
+
+
 def test_wait_sock_call_sites_compat():
     """Regression : sb_boot_test appelait wait_sock(..., timeout=60) alors que la
     signature n'avait que tries= -> TypeError en CI. Verifie que CHAQUE appel
@@ -605,6 +637,7 @@ if __name__ == "__main__":
     t("entrees snapshots GRUB bootables (UUID reel, grub-mkconfig non masque)", test_grub_snapshots_bootable)
     t("finalize-install : install-extras en fatal", test_finalize_extras_loud)
     t("wait_sock : tous les appels dans tests/ utilisent des kwargs valides (regression timeout=)", test_wait_sock_call_sites_compat)
+    t("aucun || true sur commandes critiques (finalize/liveuser/sign_iso)", test_no_masked_critical_commands)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

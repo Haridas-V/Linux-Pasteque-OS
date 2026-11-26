@@ -8,8 +8,8 @@ echo "== État Secure Boot =="
 mokutil --sb-state 2>/dev/null || echo "mokutil absent (pacman -S mokutil)"
 echo
 echo "== Empreinte de la clé Pastèque à enrôler =="
-openssl x509 -in /usr/share/pasteque/mok/Pasteque.der -inform DER -noout -fingerprint -sha256 2>/dev/null || true
-cat /usr/share/pasteque/mok/FINGERPRINT.txt 2>/dev/null
+openssl x509 -in "$MOK" -inform DER -noout -fingerprint -sha256 2>/dev/null || echo "[pasteque-secureboot] DER $MOK absent ou illisible (build incomplet ?)" >&2
+if [ -f /usr/share/pasteque/mok/FINGERPRINT.txt ]; then cat /usr/share/pasteque/mok/FINGERPRINT.txt; else echo "[pasteque-secureboot] FINGERPRINT.txt absent" >&2; fi
 echo
 echo "== Enrôlement (à faire UNE fois, Secure Boot ON) =="
 echo "  sudo mokutil --import $MOK"

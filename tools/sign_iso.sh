@@ -11,8 +11,11 @@ ISO="${1:?usage: SIGNING_KEY=0x... $0 out/pasteque-1.0.iso}"
 DIR="$(dirname "$ISO")"
 BASE="$(basename "$ISO")"
 
-# empreinte SHA256 (toujours)
-(cd "$(dirname "$ISO")" && sha256sum "$(basename "$ISO")" > "$(basename "$ISO").sha256")
+# empreinte SHA256 (toujours) — ECHEC = FATAL (jamais de faux succes)
+if ! (cd "$DIR" && sha256sum "$BASE" > "$BASE.sha256" && test -s "$BASE.sha256"); then
+    echo "[sign] ERREUR: sha256 a echoue sur $ISO" >&2
+    exit 1
+fi
 echo "[sign] sha256 OK -> $ISO.sha256"
 
 # signature GPG détachée si une clé est disponible
@@ -44,7 +47,8 @@ elif [ -n "${PASTEQUE_GPG_KEY:-}" ]; then
         fi
         rm -rf "$GNUPGHOME"
     else
-        echo "[sign] PASTEQUE_GPG_KEY invalide, pas de .asc" >&2
+        echo "[sign] ERREUR: PASTEQUE_GPG_KEY fournie mais import impossible -> pas de .asc" >&2
+        exit 1
     fi
 else
     echo "[sign] pas de clé GPG (SIGNING_KEY / PASTEQUE_GPG_KEY) -> sha256 seul."

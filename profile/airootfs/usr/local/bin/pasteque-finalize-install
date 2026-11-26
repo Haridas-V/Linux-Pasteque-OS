@@ -2,24 +2,24 @@
 # Exécuté par Calamares (dans la cible) à la fin de l'installation.
 set -e
 # sécurité : root verrouillé, sudo pour wheel, pare-feu actif, ssh non installé
-passwd -l root || true
+passwd -l root || { echo "[pasteque-finalize] ERREUR: verrouillage de root" >&2; exit 1; }
 mkdir -p /etc/sudoers.d
 echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/010-pasteque-wheel
 chmod 440 /etc/sudoers.d/010-pasteque-wheel
-systemctl enable firewalld 2>/dev/null || true
+systemctl enable firewalld || { echo "[pasteque-finalize] ERREUR: activation firewalld" >&2; exit 1; }
 # plus d'autologin live sur le système installé
 rm -f /etc/sddm.conf.d/10-pasteque.conf
 cat > /etc/sddm.conf.d/10-pasteque.conf <<'EOC'
 [General]
 DisplayServer=wayland
 EOC
-systemctl enable sddm 2>/dev/null || true
+systemctl enable sddm || { echo "[pasteque-finalize] ERREUR: activation sddm (pas de session graphique)" >&2; exit 1; }
 # hostname + locale FR
 hostnamectl set-hostname pasteque 2>/dev/null || echo pasteque > /etc/hostname
-locale-gen 2>/dev/null || true
+locale-gen || { echo "[pasteque-finalize] ERREUR: locale-gen (locale FR manquante)" >&2; exit 1; }
 # services Pastèque
-systemctl enable pasteque-liveuser pasteque-extras pasteque-steamlibs pasteque-bootcheck 2>/dev/null || true
-systemctl enable pasteque-update.timer pasteque-steamlibs.timer 2>/dev/null || true
+systemctl enable pasteque-liveuser pasteque-extras pasteque-steamlibs pasteque-bootcheck || { echo "[pasteque-finalize] ERREUR: activation services pasteque" >&2; exit 1; }
+systemctl enable pasteque-update.timer pasteque-steamlibs.timer || { echo "[pasteque-finalize] ERREUR: activation timers pasteque" >&2; exit 1; }
 # initramfs de la cible : preset "installé" (hooks standard + pasteque_mods),
 # pas le preset archiso de la live
 cat > /etc/mkinitcpio.conf <<'EOC'
@@ -56,8 +56,11 @@ default_kver="/boot/vmlinuz-lts"
 EOC
 # initramfs : ECHEC FATAL (sinon boot casse apres mise a jour noyau)
 mkinitcpio -P || { echo "[pasteque-finalize] ERREUR mkinitcpio -P" >&2; exit 1; }
-# menu GRUB avec les autres OS detectes (dual-boot) ; os-prober absent = pas grave
-os-prober >/dev/null 2>&1 || true
+# menu GRUB avec les autres OS detectes (dual-boot) ; os-prober renvoie aussi
+# non-nul quand AUCUN autre OS n'est present -> avertissement, pas fatal, pas silencieux
+if ! os-prober > /tmp/pasteque-osprober.log 2>&1; then
+    echo "[pasteque-finalize] os-prober: aucun autre OS ou erreur (log: /tmp/pasteque-osprober.log)" >&2
+fi
 grub-mkconfig -o /boot/grub/grub.cfg || { echo "[pasteque-finalize] ERREUR grub-mkconfig" >&2; exit 1; }
 # installer les extras pour l'utilisateur créé
 /usr/bin/python3 /usr/local/bin/pasteque-install-extras || { echo '[pasteque-finalize] ERREUR install-extras (applis offline manquantes)' >&2; exit 1; }

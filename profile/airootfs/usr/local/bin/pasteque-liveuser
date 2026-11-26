@@ -3,6 +3,6 @@
 # (session ISO). Sur le système installé, Calamares a déjà créé l'utilisateur.
 set -e
 if ! awk -F: '$3 >= 1000 && $3 < 65534 { found=1 } END { exit !found }' /etc/passwd; then
-    useradd -m -G wheel,video,audio,input,storage,optical -s /bin/bash live 2>/dev/null || true
+    useradd -m -G wheel,video,audio,input,storage,optical -s /bin/bash live || { echo "[pasteque-liveuser] ERREUR: creation de l'utilisateur live" >&2; exit 1; }
 fi
-passwd -l root >/dev/null 2>&1 || true
+passwd -l root >/dev/null 2>&1 || { echo "[pasteque-liveuser] ERREUR: verrouillage de root" >&2; exit 1; }
