@@ -74,3 +74,38 @@ Dernier commit : voir `git log -1`. Dernier run CI vert connu : `45730337362` (d
 - finalize-install : mkinitcpio -P / grub-mkconfig / pacman-key en fatals + preset linux-lts.
 - Hook pasteque_mods : version noyau via `uname -r`. Label de test renommé NOMOUNT_LABEL.
 - SECURE_BOOT.md : procédure MOK corrigée (boot SB off -> mokutil --import -> SB on -> MokManager).
+
+## Mission prioritaire — audit et fiabilisation totale (2026-11-26, session en cours)
+
+Audit domaine par domaine (10 domaines du brief, faits manuellement — aucun sous-agent
+déployable dans le bac à sable : pas de clé API Mistral disponible, déclaré honnêtement
+dans le rapport final) :
+
+- **Bug trouvé en relecture avant CI** : `tests/sb_boot_test.py` appelait
+  `wait_sock(sock, proc, timeout=60)` alors que la signature n'acceptait que `tries=`
+  → TypeError en CI. Corrigé : `wait_sock(path, proc, tries=40, timeout=None)` +
+  test de non-régression qui scanne TOUS les appels `wait_sock(...)` de tests/.
+- **sb_boot_test.py renforcé** : scan de l'historique serial COMPLET (marqueurs coupés
+  entre deux lectures), double marqueur SB (`secureboot: Secure boot enabled` /
+  `Kernel is locked down from EFI Secure Boot` — chaînes vérifiées contre de vrais dmesg).
+- **Aucun `|| true` restant sur commandes critiques** : `pasteque-finalize-install`
+  (root verrouillé, firewalld, sddm, locale-gen FR, services/timers pasteque),
+  `pasteque-liveuser`, `tools/sign_iso.sh` (échec sha256 ou import clé GPG CI = exit 1,
+  plus de faux succès) rendus fatals. `os-prober` : avertissement explicite non silencieux
+  (retour non nul légitime quand aucun autre OS). `pasteque-secureboot` : DER/FINGERPRINT
+  absents = message d'erreur au lieu de silence.
+- **Build strict** (`tools/build_sandbox.py`) : `locale-gen` fatal dans la live,
+  vérification explicite que sshd est bien désactivé (masqué + plus de *.wants),
+  logo/fonds d'écran vérifiés présents (fatal sinon), `chmod +x /usr/local/bin/*` fatal,
+  sudoers.d wheel chmod 440 forcé (git ne stocke que 644/755).
+- **Faux positif de test supprimé** : le test live `sudoers-wheel` s'auto-mutait
+  (`|| echo ... > /etc/sudoers.d/...`) pour passer. Fichier ajouté à l'overlay
+  (`profile/airootfs/etc/sudoers.d/010-pasteque-wheel`), test rendu 100% pur
+  (existe + bonne règle + mode 440), + test de non-régression anti auto-mutation
+  sur toute la batterie live.
+- **Trio anti-cheat durci** : `PASTEQUE_ANTICHEAT_DB` overridable (testable),
+  `pasteque-anticheat-setlaunch` : usage/mode/fichier vérifiés (exit 2/1 propre au lieu
+  d'un IndexError), `pasteque-anticheat-warn` : DB illisible = erreur explicite.
+- **Tests unitaires : 39/39 PASS** (nouveaux tests de non-régression inclus).
+- CI : runs en cours à chaque push (workflow strict `set -e`, 4 suites obligatoires :
+  vm, usb, live, **sb_boot_test OVMF réel positif+négatif**). Résultats dans le rapport final.
