@@ -578,6 +578,16 @@ def test_no_masked_critical_commands():
         assert "|| true" not in src, "|| true restant dans %s" % os.path.basename(f)
 
 
+def test_build_strict_assets_and_ssh():
+    """build_sandbox.py : logo/fonds d'ecran verifies (fatal si absents), locale-gen
+    fatal dans la live, sshd verifie desactive (pas de '|| true' silencieux), chmod +x fatal."""
+    src = open(os.path.join(REPO, "tools/build_sandbox.py"), encoding="utf-8").read()
+    assert "logo/fonds d'ecran" in src and "RuntimeError" in src, "assets visuels non verifies"
+    assert "locale-gen || {" in src and "locale-gen 2>/dev/null || true" not in src, "locale-gen build masque"
+    assert "sshd.service present et non masque" in src, "pas de verification sshd off"
+    assert "chmod +x /usr/local/bin/* ||" in src, "chmod +x /usr/local/bin/* doit etre fatal"
+
+
 def test_wait_sock_call_sites_compat():
     """Regression : sb_boot_test appelait wait_sock(..., timeout=60) alors que la
     signature n'avait que tries= -> TypeError en CI. Verifie que CHAQUE appel
@@ -638,6 +648,7 @@ if __name__ == "__main__":
     t("finalize-install : install-extras en fatal", test_finalize_extras_loud)
     t("wait_sock : tous les appels dans tests/ utilisent des kwargs valides (regression timeout=)", test_wait_sock_call_sites_compat)
     t("aucun || true sur commandes critiques (finalize/liveuser/sign_iso)", test_no_masked_critical_commands)
+    t("build strict : assets visuels verifies, locale-gen fatal, sshd off verifie, chmod fatal", test_build_strict_assets_and_ssh)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

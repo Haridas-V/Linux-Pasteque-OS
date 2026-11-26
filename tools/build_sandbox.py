@@ -318,10 +318,20 @@ def step_install():
     # fonds d'ecran Pasteque (PNG generes en pure python, aucune dependance)
     run([sys.executable, os.path.join(TOOLS, "gen_wallpapers.py"),
          os.path.join(PROFILE, "airootfs/usr/share/backgrounds/pasteque")], check=False)
-    # SSH desactive par defaut : retirer openssh si present, sinon masquer sshd
+    # identite visuelle : logo + fonds d'ecran DOIVENT exister, sinon build ECHOUE
+    _logo = os.path.join(PROFILE, "airootfs/usr/share/pasteque/logo.png")
+    _wpdir = os.path.join(PROFILE, "airootfs/usr/share/backgrounds/pasteque")
+    if not (os.path.exists(_logo) and os.path.isdir(_wpdir) and os.listdir(_wpdir)):
+        raise RuntimeError("logo/fonds d'ecran Pastèque manquants après generation -> identité visuelle incomplète, build STOPPE")
+    # SSH desactive par defaut : retirer openssh si present, sinon masquer sshd,
+    # puis VERIFIER que sshd n'est plus utilisable (promesse sécurité "SSH off")
     chroot(["/bin/bash", "-c",
             "pacman --config /etc/pacman.conf.build -Rns --noconfirm openssh 2>/dev/null; "
-            "if [ -e /usr/lib/systemd/system/sshd.service ]; then ln -sf /dev/null /etc/systemd/system/sshd.service; fi; true"])
+            "if [ -e /usr/lib/systemd/system/sshd.service ]; then ln -sf /dev/null /etc/systemd/system/sshd.service; fi; "
+            "if [ -e /usr/lib/systemd/system/sshd.service ] && [ ! -L /etc/systemd/system/sshd.service ]; then "
+            "echo '[build] ERREUR: sshd.service present et non masque'; exit 1; fi; "
+            "if ls /etc/systemd/system/*.wants/ 2>/dev/null | grep -q sshd; then "
+            "echo '[build] ERREUR: sshd active via *.wants'; exit 1; fi; true"])
     # overlay airootfs
     airootfs = os.path.join(PROFILE, "airootfs")
     for src, dirs, files in os.walk(airootfs):
@@ -345,8 +355,8 @@ def step_install():
     os.makedirs(os.path.join(ROOTFS, "etc/pacman.d/gnupg"), exist_ok=True)
     # conf pacman de production (celle livrée dans l'ISO)
     shutil.copy2(os.path.join(PROFILE, "pacman.conf"), os.path.join(ROOTFS, "etc/pacman.conf"))
-    # locales
-    chroot(["/bin/bash", "-c", "locale-gen 2>/dev/null || true"])
+    # locales : locale FR obligatoire dans la live -> ECHEC FATAL (pas de || true)
+    chroot(["/bin/bash", "-c", "locale-gen || { echo '[build] ERREUR: locale-gen a echoue (locale FR absente de la live)'; exit 1; }"])
     # sandbox build config (ne pas écraser la conf de production livrée dans l'ISO)
     chroot(["/bin/bash", "-c",
             "cp /etc/pacman.d/mirrorlist.build /etc/pacman.d/mirrorlist.sandbox && true"])
@@ -580,7 +590,7 @@ def step_iso():
             print("[iso] dbus helper:", e, flush=True)
     # filet de securite : tous les scripts maison doivent etre EXECUTABLES dans l'ISO
     # (un oubli de chmod +x en git rendrait l'app invisible au lancement)
-    chroot(["/bin/bash", "-c", "chmod +x /usr/local/bin/* 2>/dev/null; true"])
+    chroot(["/bin/bash", "-c", "chmod +x /usr/local/bin/* || { echo '[build] ERREUR: chmod +x /usr/local/bin/*'; exit 1; }"])
     # squashfs de l'airootfs (réutilisé si déjà présent et FORCE_SQUASHFS unset)
     if not os.path.exists(sfs) or os.environ.get("FORCE_SQUASHFS"):
         if os.path.exists(sfs):
