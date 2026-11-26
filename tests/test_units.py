@@ -588,6 +588,23 @@ def test_build_strict_assets_and_ssh():
     assert "chmod +x /usr/local/bin/* ||" in src, "chmod +x /usr/local/bin/* doit etre fatal"
 
 
+def test_sudoers_overlay_and_pure_live_tests():
+    """L'overlay doit contenir la règle sudo wheel (sinon le test live s'auto-mutait
+    pour passer = faux positif), le build doit chmod 440, et AUCUN test live ne doit
+    modifier le système dans sa condition (pure vérification)."""
+    import re
+    p = os.path.join(REPO, "profile/airootfs/etc/sudoers.d/010-pasteque-wheel")
+    assert os.path.exists(p), "sudoers wheel absent de l'overlay (la live n'aurait pas sudo)"
+    assert "%wheel ALL=(ALL) ALL" in open(p, encoding="utf-8").read()
+    src = open(os.path.join(REPO, "tools/build_sandbox.py"), encoding="utf-8").read()
+    assert "0o440" in src, "build doit chmod 440 le sudoers.d"
+    lt = open(os.path.join(REPO, "tests/live_tests.sh"), encoding="utf-8").read()
+    for m in re.finditer(r'^t (\S+) bash -c [\'"](.*)[\'"]$', lt, re.M):
+        body = m.group(2)
+        assert not re.search(r"\|\| *(echo|touch|mkdir|cp|ln|tee|sed -i)\b", body), \
+            "test live auto-mutant (faux positif): %s" % m.group(1)
+
+
 def test_wait_sock_call_sites_compat():
     """Regression : sb_boot_test appelait wait_sock(..., timeout=60) alors que la
     signature n'avait que tries= -> TypeError en CI. Verifie que CHAQUE appel
@@ -649,6 +666,7 @@ if __name__ == "__main__":
     t("wait_sock : tous les appels dans tests/ utilisent des kwargs valides (regression timeout=)", test_wait_sock_call_sites_compat)
     t("aucun || true sur commandes critiques (finalize/liveuser/sign_iso)", test_no_masked_critical_commands)
     t("build strict : assets visuels verifies, locale-gen fatal, sshd off verifie, chmod fatal", test_build_strict_assets_and_ssh)
+    t("sudoers wheel dans l'overlay + tests live 100% purs (pas d'auto-mutation)", test_sudoers_overlay_and_pure_live_tests)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

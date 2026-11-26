@@ -350,6 +350,12 @@ def step_install():
             else:
                 shutil.copy2(s, d)
     print("[build] overlay applied", flush=True)
+    # sudoers.d : mode 440 OBLIGATOIRE (git ne stocke que 644/755) — sudo refuse sinon
+    _sud = os.path.join(ROOTFS, "etc/sudoers.d/010-pasteque-wheel")
+    if os.path.exists(_sud):
+        os.chmod(_sud, 0o440)
+    else:
+        raise RuntimeError("overlay incomplet: etc/sudoers.d/010-pasteque-wheel absent -> sudo wheel sans regle")
     # GPGDir de pacman.conf doit exister dans la rootfs, sinon toute commande pacman
     # echoue dans le systeme live/installe ("failed to resolve path ... GPGDir")
     os.makedirs(os.path.join(ROOTFS, "etc/pacman.d/gnupg"), exist_ok=True)

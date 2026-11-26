@@ -36,7 +36,8 @@ print('erase-disk btrfs OK')"
 t root-locked bash -c 'passwd -S root | awk "{print \$2}" | grep -q L'
 t ssh-absent bash -c 'test ! -e /usr/lib/systemd/system/sshd.service || test -L /etc/systemd/system/sshd.service; ! ls /etc/systemd/system/multi-user.target.wants/sshd.service /etc/systemd/system/sockets.target.wants/sshd.socket 2>/dev/null'
 t firewalld-enabled bash -c 'test -L /etc/systemd/system/multi-user.target.wants/firewalld.service'
-t sudoers-wheel bash -c 'test -f /etc/sudoers.d/010-pasteque-wheel 2>/dev/null || grep -q wheel /etc/sudoers /etc/sudoers.d/* 2>/dev/null || echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/010-pasteque-wheel'
+# test PUR (pas d'auto-mutation) : le fichier doit exister dans l'ISO, mode 440, bonne règle
+t sudoers-wheel bash -c 'test -f /etc/sudoers.d/010-pasteque-wheel && grep -q "%wheel ALL=(ALL) ALL" /etc/sudoers.d/010-pasteque-wheel && [ "$(stat -c %a /etc/sudoers.d/010-pasteque-wheel)" = "440" ]'
 t sddm-wayland bash -c 'grep -q "Session=plasmawayland" /etc/sddm.conf.d/10-pasteque.conf'
 
 # --- 3. Locale / clavier FR ---
