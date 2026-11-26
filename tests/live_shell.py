@@ -336,6 +336,14 @@ def phase_boot_loader(iso, rep, outdir, uefi):
     proc.wait(timeout=30)
 
 
+# Label VOLontairement inexistant pour la phase "shell live" du harnais :
+# le hook archiso ne trouve pas le medium et nous laisse son shell, ce qui permet
+# de monter le vrai medium et de chrooter pour la batterie de tests.
+# Les vrais boots (label PASTEQUE reel) sont les tests boot-bios-chargeur /
+# boot-uefi-chargeur / run_vm_test / usb_boot_test — eux seuls valident le boot.
+NOMOUNT_LABEL = "PASTEQUE-TEST-NOMOUNT"
+
+
 def phase_live_and_install(iso, rep, outdir):
     ext = os.path.join(WORK, "liveshell-extract")
     extract_iso(iso, ext)
@@ -360,7 +368,7 @@ def phase_live_and_install(iso, rep, outdir):
         # Label volontairement bidon : le hook archiso ne trouve pas le medium, attend 30s
         # puis nous laisse son shell [rootfs ~]# — mais notre hook pasteque_mods a deja
         # charge tous les pilotes, donc /dev/sr0 existe et on monte le medium nous-memes.
-        "-append", "archisolabel=PASTEQUEZZZ archisobasedir=arch console=ttyS0,115200 init=/bin/bash",
+        "-append", "archisolabel=%s archisobasedir=arch console=ttyS0,115200 init=/bin/bash" % NOMOUNT_LABEL,
         "-cdrom", iso, "-boot", "d",
         "-drive", "file=%s,if=virtio" % vda,
         "-drive", "file=%s,if=virtio" % vdb,
@@ -378,6 +386,10 @@ def phase_live_and_install(iso, rep, outdir):
     ser.drain(2)
 
     # sonde de diagnostic : quels blocs/modules/dmesg voit le noyau ?
+    # + note explicite : le label bidon de cette phase est VOLONTAIRE (voir NOMOUNT_LABEL)
+    ser.run('echo "NOTE harnais: archisolabel=%s est un label bidon VOLONTAIRE pour cette phase shell-live ; '
+            'les boots reels (label PASTEQUE) sont valides par boot-bios-chargeur/boot-uefi-chargeur/run_vm_test/usb_boot_test"'
+            % NOMOUNT_LABEL, timeout=30)
     probe, _ = ser.run("echo ===BLOCK===; ls /sys/block 2>&1; echo ===MODS===; "
                        "cat /proc/modules 2>/dev/null | cut -d' ' -f1 | tr '\\n' ' '; echo; "
                        "echo ===DMESG===; dmesg | grep -iE 'ahci|ata[0-9]|sr[0-9]|scsi|virtio|cdrom' | tail -30; "
@@ -477,6 +489,9 @@ printf 'set timeout=1\\nserial --speed=115200\\nterminal_output console serial\\
     out, rc = ser.run("chroot /newroot/mnt/target /bin/bash /tmp/finalize.sh", timeout=3600)
     open(os.path.join(outdir, "install-finalize.txt"), "w").write(out)
     rep.check("install-finalize-grub", rc == 0, out[-300:] if rc else "finalize + mkinitcpio + grub-install OK")
+    n_depmod_err = out.count("depmod: ERROR")
+    rep.check("install-finalize-depmod-propre", n_depmod_err == 0,
+              "%d erreurs depmod (modules non lisibles = index kmod casse)" % n_depmod_err if n_depmod_err else "")
     ser.run("sync", timeout=60)
     proc.kill()
     proc.wait(timeout=30)

@@ -58,6 +58,8 @@ def bash_n_all():
 
 
 def test_sb_module_signature():
+    """Signature module au format sign-file : magic EN DERNIER, header 12o avant
+    (algo=0,hash=0,id=2,sig_len BE32), CMS verifiable avec openssl."""
     if not shutil.which("openssl"):
         print("  (openssl absent, test saute)")
         return
@@ -70,26 +72,24 @@ def test_sb_module_signature():
                         "-keyout", key, "-out", crt, "-days", "1", "-subj", "/CN=Test SB"],
                        check=True, capture_output=True)
         ko = os.path.join(td, "dummy.ko")
+        raw = b"\x7fELF" + os.urandom(512)
         with open(ko, "wb") as f:
-            f.write(b"\x7fELF" + os.urandom(512))
-        sb_sign.sign_module(ko, key, crt)
+            f.write(raw)
+        sb_sign.sign_module(ko, key, crt, "sha512")
         data = open(ko, "rb").read()
-        assert sb_sign.MAGIC in data[-64:], "magic absent"
-        # le CMS doit se parser et sa longueur matcher l'en-tête
-        idx = data.rindex(sb_sign.MAGIC)
-        hdr = data[idx + len(sb_sign.MAGIC):]
+        assert data[-len(sb_sign.MAGIC):] == sb_sign.MAGIC, "magic doit etre le DERNIER bloc"
+        hdr = data[-(len(sb_sign.MAGIC) + 12):-len(sb_sign.MAGIC)]
+        assert hdr[0] == 0 and hdr[1] == 0 and hdr[2] == 2, "algo=0 hash=0 id_type=2(PKCS7)"
         sig_len = int.from_bytes(hdr[8:12], "big")
-        cms = data[idx - sig_len:idx]
-        der = os.path.join(td, "sig.der")
-        open(der, "wb").write(cms)
-        r = subprocess.run(["openssl", "cms", "-cmsout", "-inform", "DER", "-in", der, "-print"],
-                           capture_output=True, text=True)
-        assert r.returncode == 0, "CMS illisible: " + r.stderr[-200:]
-        assert b"Test SB" in r.stdout.encode() or "Test SB" in r.stdout
-        # re-signer ne doit pas doubler la signature
-        size1 = len(data)
-        sb_sign.sign_module(ko, key, crt)
-        assert len(open(ko, "rb").read()) == size1, "double signature"
+        cms = data[-(len(sb_sign.MAGIC) + 12 + sig_len):-(len(sb_sign.MAGIC) + 12)]
+        content = data[:-(len(sb_sign.MAGIC) + 12 + sig_len)]
+        assert content == raw, "le contenu signe est le module brut"
+        sigf = os.path.join(td, "sig.der"); open(sigf, "wb").write(cms)
+        rawf = os.path.join(td, "raw.ko"); open(rawf, "wb").write(content)
+        v = subprocess.run(["openssl", "cms", "-verify", "-binary", "-noverify", "-inform", "DER",
+                            "-in", sigf, "-certfile", crt, "-content", rawf, "-out", os.devnull],
+                           capture_output=True)
+        assert v.returncode == 0, "CMS non verifiable: " + v.stderr.decode()[-200:]
 
 
 def test_iso_sign_verify():
@@ -371,6 +371,165 @@ def test_exit_flag_idiom():
     assert "exit $ok" not in src, "anti-regression: ne plus utiliser 'exit $ok' (inversion)"
 
 
+def test_workflow_strict_no_set_plus_e():
+    """Le workflow ne doit PAS masquer les echecs des tests obligatoires :
+    pas de 'set +e' dans le bloc build/tests, uploads en if: always(),
+    et les 4 suites de tests appelees (vm, usb, live, secure boot OVMF)."""
+    import yaml
+    wf = yaml.safe_load(open(os.path.join(REPO, ".github/workflows/build-iso.yml"), encoding="utf-8"))
+    run = next(st["run"] for st in wf["jobs"]["build"]["steps"] if "build_sandbox.py" in st.get("run", ""))
+    assert "set -e" in run and "set +e" not in run, "set +e interdit dans le bloc build/tests"
+    for suite in ("run_vm_test.py", "usb_boot_test.py", "live_shell.py", "sb_boot_test.py"):
+        assert suite in run, "suite de tests manquante dans le workflow: " + suite
+    steps = wf["jobs"]["build"]["steps"]
+    uploads = [st for st in steps if st.get("uses", "").startswith("actions/upload-artifact")]
+    assert uploads and all(st.get("if") == "always()" for st in uploads), \
+        "les uploads d'artefacts doivent etre if: always() (logs meme si test echoue)"
+
+
+def test_no_siglevel_never():
+    """Plus aucun SigLevel = Never dans le depot : verification crypto des paquets."""
+    bad = []
+    for root, dirs, files in os.walk(REPO):
+        dirs[:] = [d for d in dirs if d not in (".git", "work", "out", "__pycache__", "node_modules")]
+        for fn in files:
+            fp = os.path.join(root, fn)
+            try:
+                txt = open(fp, encoding="utf-8", errors="replace").read()
+            except Exception:
+                continue
+            if re.search(r"(?m)^\s*SigLevel\s*=\s*Never", txt):
+                bad.append(fp)
+    assert not bad, "SigLevel = Never encore present: " + ", ".join(bad)
+    conf = open(os.path.join(REPO, "profile/pacman.conf"), encoding="utf-8").read()
+    assert "Required" in conf, "pacman.conf de production doit exiger les signatures"
+
+
+def test_sb_sign_format_sign_file():
+    """sb_sign.py doit produire EXACTEMENT le format de scripts/sign-file du noyau :
+    [data][CMS][header 12o: algo=0,hash=0,id=2,sig_len BE32][magic EN DERNIER],
+    CMS detached NOCERTS NOATTR, hash lu depuis IKCONFIG, modules compresses
+    decompresses+resignes en .ko, et echec franc si incomplet."""
+    src = open(os.path.join(REPO, "tools/sb_sign.py"), encoding="utf-8").read()
+    assert "f.write(data + cms + header + MAGIC)" in src, "magic doit etre ecrit EN DERNIER"
+    assert "bytes([0, 0, 2, 0, 0, 0, 0, 0])" in src, "header: algo=0 hash=0 id_type=2(PKCS7)"
+    assert '"-nocerts", "-noattr", "-nosmimecap"' in src, "CMS doit etre detached NOCERTS NOATTR"
+    assert "kernel_sig_hash" in src and "IKCFG_ST" in src, "hash du noyau lu via IKCONFIG"
+    assert "strip_appended_sig" in src, "l'ancienne signature Arch doit etre strippee avant re-signation"
+    assert 'raise RuntimeError' in src or "sys.exit(1)" in src, "echec franc si signature incomplete"
+    m = re.search(r"def ensure_tools\(\).*?(?=\ndef )", src, re.S)
+    assert m and "sys.exit(1)" in m.group(0), "sbsign/openssl manquants = exit 1 (strict)"
+
+
+def test_sb_module_sign_roundtrip():
+    """Round-trip reel : un .ko.zst signe -> .ko avec magic terminal + CMS verifiable
+    avec openssl (sha512), et l'ancienne signature est remplacee."""
+    import subprocess, tempfile
+    openssl = shutil.which("openssl")
+    if not openssl:
+        print("SKIP (openssl absent)"); return
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import sb_sign
+    sb_sign.OPENSSL = openssl
+    with tempfile.TemporaryDirectory() as td:
+        # cle test
+        key = os.path.join(td, "k.pem"); crt = os.path.join(td, "c.pem")
+        subprocess.run([openssl, "req", "-new", "-x509", "-newkey", "rsa:2048", "-nodes",
+                        "-keyout", key, "-out", crt, "-days", "1", "-subj", "/CN=unit-test"],
+                       check=True, capture_output=True)
+        # faux module compressé : contenu brut + ANCIENNE signature (style Arch) dans le .zst
+        import gzip
+        raw = b"\x7fELF" + os.urandom(500)
+        old_sig = b"X" * 263 + bytes([0, 0, 2, 0, 0, 0, 0, 0]) + (263).to_bytes(4, "big") + sb_sign.MAGIC
+        comp = subprocess.run(["gzip", "-c"], input=raw + old_sig, capture_output=True, check=True).stdout
+        mod = os.path.join(td, "fake.ko.gz")
+        open(mod, "wb").write(comp)
+        out = sb_sign.sign_module(mod, key, crt, "sha512")
+        assert out.endswith(".ko") and os.path.exists(out) and not os.path.exists(mod), "gz -> .ko"
+        data = open(out, "rb").read()
+        assert data[-len(sb_sign.MAGIC):] == sb_sign.MAGIC, "magic terminal"
+        hdr = data[-(len(sb_sign.MAGIC) + 12):-len(sb_sign.MAGIC)]
+        assert hdr[0] == 0 and hdr[1] == 0 and hdr[2] == 2, "algo=0 hash=0 id=2"
+        sig_len = int.from_bytes(hdr[8:12], "big")
+        cms = data[-(len(sb_sign.MAGIC) + 12 + sig_len):-(len(sb_sign.MAGIC) + 12)]
+        content = data[:-(len(sb_sign.MAGIC) + 12 + sig_len)]
+        assert content == raw, "contenu signe = module brut SANS l'ancienne signature"
+        sigf = os.path.join(td, "s.der"); open(sigf, "wb").write(cms)
+        rawf = os.path.join(td, "r.ko"); open(rawf, "wb").write(content)
+        v = subprocess.run([openssl, "cms", "-verify", "-binary", "-noverify", "-inform", "DER",
+                            "-in", sigf, "-certfile", crt, "-content", rawf, "-out", os.devnull],
+                           capture_output=True)
+        assert v.returncode == 0, "CMS non verifiable: " + v.stderr.decode()[-200:]
+
+
+def test_hook_kernel_version_uname():
+    """Le hook pasteque_mods runtime doit prendre la version du noyau en cours
+    (uname -r), jamais 'ls /usr/lib/modules | head -1' (tri alphabetique faux)."""
+    src = open(os.path.join(REPO, "tools/build_sandbox.py"), encoding="utf-8").read()
+    hook = src[src.find("HOOK_RUNTIME ="):src.find("MKINITCPIO_PRESET")]
+    assert "kv=$(uname -r" in hook, "le hook doit utiliser uname -r"
+    assert hook.count("head -1") <= 1, "ls|head -1 ne doit subsister qu en repli"
+    assert hook.count("head -1") <= 1, "ls|head -1 ne doit subsister qu en repli"
+
+
+def test_labels_harmonises():
+    """Plus de PASTEQUEZZZ nulle part ; le label de test est NOMOUNT_LABEL explicite,
+    et le label reel de l'ISO est PASTEQUE partout."""
+    for root, dirs, files in os.walk(REPO):
+        dirs[:] = [d for d in dirs if d not in (".git", "work", "out", "__pycache__")]
+        for fn in files:
+            fp = os.path.join(root, fn)
+            if fn == "test_units.py":
+                continue  # ce fichier cite volontairement l'ancien label dans son test
+            if fn.endswith((".py", ".yml", ".sh", ".cfg")):
+                txt = open(fp, encoding="utf-8", errors="replace").read()
+                assert "PASTEQUEZZZ" not in txt, "PASTEQUEZZZ dans " + fp
+    ls = open(os.path.join(REPO, "tests/live_shell.py"), encoding="utf-8").read()
+    assert "NOMOUNT_LABEL" in ls
+    bs = open(os.path.join(REPO, "tools/build_sandbox.py"), encoding="utf-8").read()
+    assert 'ISO_LABEL = os.environ.get("ISO_LABEL", "PASTEQUE")' in bs and "archisolabel=%s" in bs, "label ISO = PASTEQUE"
+
+
+def test_finalize_install_loud():
+    """pasteque-finalize-install : mkinitcpio/grub-mkconfig/pacman-key en fatals,
+    preset LTS present, plus de '|| true' sur les commandes critiques."""
+    src = open(os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-finalize-install"), encoding="utf-8").read()
+    assert "mkinitcpio -P ||" in src and "exit 1" in src, "mkinitcpio -P doit etre fatal"
+    assert "grub-mkconfig -o /boot/grub/grub.cfg ||" in src, "grub-mkconfig doit etre fatal"
+    assert "pacman-key --populate archlinux; then" in src, "pacman-key populate doit etre fatal"
+    assert "linux-lts.preset" in src, "preset LTS manquant"
+    assert "mkinitcpio -P 2>/dev/null || true" not in src
+
+
+def test_depmod_build_loud():
+    """Le build ne doit plus appeler depmod avec stderr jette : log + fatal si erreurs."""
+    src = open(os.path.join(REPO, "tools/build_sandbox.py"), encoding="utf-8").read()
+    assert "depmod-build.log" in src, "depmod build doit logger dans work/depmod-build.log"
+    assert 'depmod -a \"$kv\" 2>/dev/null' not in src, "depmod 2>/dev/null encore present"
+    assert "patch_initcpio.py" in src and "usr/bin/mkinitcpio" in src, "mkinitcpio principal aussi patché (/dev/fd)"
+
+
+def test_sb_boot_test_real():
+    """tests/sb_boot_test.py existe et fait un VRAI test OVMF secboot :
+    positif (cle en db via virt-fw-vars -> boot OK) + negatif (sans cle -> bloque)."""
+    p = os.path.join(REPO, "tests/sb_boot_test.py")
+    assert os.path.exists(p)
+    src = open(p, encoding="utf-8").read()
+    assert "secboot" in src and "virt-fw-vars" in src and "--add-db" in src
+    assert "NEGATIF" in src and "BLOCKED" in src, "controle negatif requis"
+    assert "module verification failed" in src, "doit verifier l'absence d'erreurs de verification modules"
+
+
+def test_test_suites_exit_nonzero_on_failure():
+    """Les 4 suites de tests VM doivent echouer (exit != 0) quand un critere echoue."""
+    for f, pat in (("tests/run_vm_test.py", "sys.exit(0 if ok else 2)"),
+                   ("tests/usb_boot_test.py", "else 2"),
+                   ("tests/live_shell.py", "sys.exit(1 if rep.fails else 0)"),
+                   ("tests/sb_boot_test.py", "else 2")):
+        src = open(os.path.join(REPO, f), encoding="utf-8").read()
+        assert pat in src, "pattern de sortie non trouve dans %s: %s" % (f, pat)
+
+
 if __name__ == "__main__":
     t("py_compile tous les scripts", compile_all)
     t("bash -n tous les scripts shell", bash_n_all)
@@ -394,6 +553,16 @@ if __name__ == "__main__":
     t("live_tests.sh : pas de $var non echappe dans bash -c (set -u)", test_live_tests_no_unbound_vars)
     t("usr/local/bin : tous les scripts pasteque-* en mode 755 dans git", test_local_bin_all_executable)
     t("idiome exit \$bad (pas exit \$ok inverse) dans live_tests.sh", test_exit_flag_idiom)
+    t("workflow CI strict : pas de set +e, uploads if:always(), 4 suites de tests", test_workflow_strict_no_set_plus_e)
+    t("plus aucun SigLevel = Never dans le depot", test_no_siglevel_never)
+    t("sb_sign.py : format sign-file exact (magic dernier, algo=0/hash=0/id=2, IKCONFIG)", test_sb_sign_format_sign_file)
+    t("round-trip signature module .ko.gz -> .ko signe verifiable (sha512)", test_sb_module_sign_roundtrip)
+    t("hook pasteque_mods : version noyau via uname -r", test_hook_kernel_version_uname)
+    t("labels harmonises : plus de PASTEQUEZZZ, NOMOUNT_LABEL explicite, ISO=PASTEQUE", test_labels_harmonises)
+    t("finalize-install : mkinitcpio/grub-mkconfig/pacman-key fatals + preset LTS", test_finalize_install_loud)
+    t("build : depmod loud (log+fatal) + mkinitcpio principal patché", test_depmod_build_loud)
+    t("sb_boot_test.py : vrai test OVMF secboot positif+negatif", test_sb_boot_test_real)
+    t("suites VM : exit non nul si echec", test_test_suites_exit_nonzero_on_failure)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

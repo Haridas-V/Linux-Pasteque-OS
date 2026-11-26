@@ -38,17 +38,27 @@ default_image="/boot/initramfs-linux.img"
 default_kver="/boot/vmlinuz-linux"
 EOC
 mkdir -p /etc/pacman.d/gnupg
-timeout 60 pacman-key --init 2>/dev/null || true
-timeout 120 pacman-key --populate archlinux 2>/dev/null || true
+# porte-cle Arch : INDISPENSABLE (pacman.conf a SigLevel=Required) -> erreur fatale
+if ! timeout 60 pacman-key --init; then echo "[pasteque-finalize] ERREUR pacman-key --init" >&2; exit 1; fi
+if ! timeout 120 pacman-key --populate archlinux; then echo "[pasteque-finalize] ERREUR pacman-key --populate archlinux" >&2; exit 1; fi
 # si chiffrement LUKS choisi dans Calamares (/etc/crypttab present) : hook encrypt + cryptodisk
 if [ -s /etc/crypttab ]; then
     sed -i 's/HOOKS=(base udev modconf block pasteque_mods keyboard filesystems)/HOOKS=(base udev modconf block keyboard encrypt pasteque_mods filesystems)/' /etc/mkinitcpio.conf
     sed -i 's/^#\?GRUB_ENABLE_CRYPTODISK=.*/GRUB_ENABLE_CRYPTODISK=y/' /etc/default/grub
 fi
-mkinitcpio -P 2>/dev/null || true
-# menu GRUB avec les autres OS detectes (dual-boot)
+# preset LTS aussi (sinon mkinitcpio -P ignore le noyau LTS de secours)
+cat > /etc/mkinitcpio.d/linux-lts.preset <<'EOC'
+ALL_config='/etc/mkinitcpio.conf'
+ALL_kver='/boot/vmlinuz-lts'
+PRESETS=('default')
+default_image="/boot/initramfs-lts.img"
+default_kver="/boot/vmlinuz-lts"
+EOC
+# initramfs : ECHEC FATAL (sinon boot casse apres mise a jour noyau)
+mkinitcpio -P || { echo "[pasteque-finalize] ERREUR mkinitcpio -P" >&2; exit 1; }
+# menu GRUB avec les autres OS detectes (dual-boot) ; os-prober absent = pas grave
 os-prober >/dev/null 2>&1 || true
-grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
+grub-mkconfig -o /boot/grub/grub.cfg || { echo "[pasteque-finalize] ERREUR grub-mkconfig" >&2; exit 1; }
 # installer les extras pour l'utilisateur créé
 /usr/bin/python3 /usr/local/bin/pasteque-install-extras 2>/dev/null || true
 # entrée de menu pour le gestionnaire d'applications Pastèque

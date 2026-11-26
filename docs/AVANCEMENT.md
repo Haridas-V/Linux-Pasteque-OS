@@ -27,7 +27,7 @@ Dernier commit : voir `git log -1`. Dernier run CI vert connu : `45730337362` (d
   au build (échoue le build si modules != noyau de l'ISO) + `depmod -a` avant mkinitcpio
 - [x] `add_module` par chemin .ko = erreur mkinitcpio (exit 1) → retour à `add_module` par nom
 - [x] `rdinit=/bin/bash` fait paniquer le noyau (« Unable to mount root fs ») → on garde `init=`
-  (testé en local) ; phase live avec label bidon PASTEQUEZZZ pour garder le shell archiso
+  (testé en local) ; phase live avec label bidon PASTEQUE-TEST-NOMOUNT (label bidon volontaire de la phase shell-live du harnais ; les vrais boots passent par les tests boot-*-chargeur avec le label reel PASTEQUE) pour garder le shell archiso
 - [x] Runs intermédiaires résolus (voir ci-dessous)
 - [x] Run `45714194999` (f470906) **VERT** : ETCHER_COMPATIBLE, BOOT_OK, **USB_BOOT_OK + USB_UEFI_BOOT_OK
   via vrai xHCI+usb-storage**, boot-bios-chargeur PASS, boot-uefi-chargeur PASS (CD), live-mount PASS,
@@ -53,3 +53,24 @@ Dernier commit : voir `git log -1`. Dernier run CI vert connu : `45730337362` (d
 - [x] Run `45613769714` (2801011) VERT : 18/18 unitaires, ISO 5841 MiB, shim+SB embarqués, ETCHER_COMPATIBLE, USB_BOOT_OK+USB_UEFI_BOOT_OK, FAILS=3→0 attendu avec 49277ff (boot CD)
 - [x] Fix boot CD validé par les runs 45714194999 et suivants
 - [ ] Validation matériel : `docs/POINTS_A_VALIDER_EN_MATERIEL.md` (GPU réel, Fortnite serveurs Epic, SB avec MOK, dual-boot, LUKS, 1440p/240Hz, manettes)
+
+## Tour de corrections "audit GPT test-logs" (commit suivant)
+
+- **Signature modules Secure Boot réécrite au format exact de scripts/sign-file** :
+  magic EN DERNIER, header algo=0/hash=0/id=2, CMS detached NOCERTS NOATTR, hash lu
+  dans IKCONFIG du noyau (sha512 sur Arch). Les modules Arch étant DEJA signés (sig
+  interne au .ko compressé), l'ancienne signature est strippée, le module décompressé
+  en .ko puis re-signé — sinon kmod/depmod échouait ("zstd: Src size is incorrect",
+  les 959 erreurs du run 45817953651) et le noyau rejetait la double signature.
+  Preuve locale : round-trip .ko.gz -> .ko signé, `openssl cms -verify` OK, depmod sans erreur.
+- step_secureboot STRICT : shim/MokManager manquants ou signature incomplète = build en échec.
+- Ordre des étapes : secureboot AVANT initramfs (l'initramfs embarque les modules signés).
+- Nouveau test REEL `tests/sb_boot_test.py` : OVMF secboot + cle Pastèque en db via
+  virt-fw-vars -> boot OK attendu ; contrôle négatif sans la cle -> boot bloqué.
+- Workflow : plus de `set +e`, uploads en `if: always()`, sha256/signé avant les tests,
+  4 suites de tests obligatoires (vm, usb, live, sb).
+- `SigLevel = Never` supprimé (build) : `Required DatabaseOptional` + pacman-key populate.
+- depmod au build en loud (work/depmod-build.log, fatal si erreurs) ; mkinitcpio principal patché (/dev/fd).
+- finalize-install : mkinitcpio -P / grub-mkconfig / pacman-key en fatals + preset linux-lts.
+- Hook pasteque_mods : version noyau via `uname -r`. Label de test renommé NOMOUNT_LABEL.
+- SECURE_BOOT.md : procédure MOK corrigée (boot SB off -> mokutil --import -> SB on -> MokManager).

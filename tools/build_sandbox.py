@@ -59,7 +59,7 @@ HOOK_RUNTIME = r"""#!/usr/bin/ash
 # avant le hook archiso (sinon archiso plante : "device did not show up after 30 seconds").
 run_hook() {
     local m p kv i lbl
-    kv=$(ls /usr/lib/modules 2>/dev/null | head -1)
+    kv=$(uname -r 2>/dev/null); [ -z "$kv" ] && kv=$(ls /usr/lib/modules 2>/dev/null | head -1)
     # ordre de dependances : core scsi -> cdrom -> controleurs ATA -> sr_mod
     for m in scsi_mod cdrom ahci ata_piix ata_generic sr_mod sd_mod nvme loop squashfs isofs overlay vfat fat ext4 btrfs xfs ntfs3 usb-storage uas xhci-pci xhci-hcd ehci-pci uhci-hcd virtio_blk virtio_scsi virtio_net; do
         modprobe "$m" 2>/dev/null || {
@@ -107,8 +107,8 @@ LogFile = /var/log/pacman.log
 Architecture = x86_64
 CheckSpace
 ParallelDownloads = 10
-SigLevel = Never
-LocalFileSigLevel = Never
+SigLevel = Required DatabaseOptional
+LocalFileSigLevel = Optional
 
 [core]
 Include = /etc/pacman.d/mirrorlist.build
@@ -279,13 +279,16 @@ def step_bootstrap():
     sys.path.insert(0, TOOLS)
     import archrepo
     archrepo.MIRROR = MIRROR.replace("https://", "http://")
-    archrepo.bootstrap_pacman(ROOTFS, CACHE, extra=["ca-certificates"])
+    archrepo.bootstrap_pacman(ROOTFS, CACHE, extra=["ca-certificates", "archlinux-keyring", "gnupg"])
     os.makedirs(os.path.join(ROOTFS, "etc/pacman.d"), exist_ok=True)
     with open(os.path.join(ROOTFS, "etc/pacman.d/mirrorlist.build"), "w") as f:
         f.write("Server = %s/$repo/os/$arch\n" % MIRROR)
         f.write("Server = http://mirror.rackspace.com/archlinux/$repo/os/$arch\n")
     with open(os.path.join(ROOTFS, "etc/pacman.conf.build"), "w") as f:
         f.write(SANDBOX_PACMAN_CONF)
+    # porte-cle Arch peuple (OBLIGATOIRE avec SigLevel=Required) : toute erreur est fatale
+    chroot(["/usr/bin/pacman-key", "--init"])
+    chroot(["/usr/bin/pacman-key", "--populate", "archlinux"])
 
 
 def step_install():
@@ -438,11 +441,22 @@ def step_extras():
 def step_initramfs():
     # index kmod (depmod) dans la rootfs AVANT mkinitcpio : indispensable pour
     # add_module/modinfo/udev quand le hook pacman 'depmod' ne tourne pas en chroot
-    chroot(["/bin/bash", "-c",
-            "for kv in $(ls /usr/lib/modules 2>/dev/null); do depmod -a \"$kv\" 2>/dev/null; done; true"])
-    # chroot sans /proc/self/fd : patch des substitutions de processus de mkinitcpio
-    run([sys.executable, os.path.join(TOOLS, "patch_initcpio.py"),
-         os.path.join(ROOTFS, "usr/lib/initcpio/functions")])
+    # depmod AVANT mkinitcpio, en VISIBLE : toute erreur est logguee et fatale
+    r = chroot(["/bin/bash", "-c",
+                "rc=0; for kv in $(ls /usr/lib/modules 2>/dev/null); do depmod -a \"$kv\" || rc=1; done; exit $rc"],
+               check=False, capture_output=True, text=True)
+    logpath = os.path.join(WORK, "depmod-build.log")
+    with open(logpath, "w") as f:
+        f.write((r.stdout or "") + (r.stderr or ""))
+    n_err = (r.stderr or "").count("ERROR")
+    print("[build] depmod: rc=%d, %d lignes ERROR (log: %s)" % (r.returncode, n_err, logpath), flush=True)
+    if r.returncode != 0 or n_err:
+        print((r.stderr or "")[-2000:], flush=True)
+        raise RuntimeError("depmod a echoue (%d erreurs) -> index modules inutilisable, build STOPPE" % n_err)
+    for _f in ("usr/lib/initcpio/functions", "usr/bin/mkinitcpio"):
+        _p = os.path.join(ROOTFS, _f)
+        if os.path.exists(_p):
+            run([sys.executable, os.path.join(TOOLS, "patch_initcpio.py"), _p])
     # hook maison de chargement explicite des modules
     os.makedirs(os.path.join(ROOTFS, "usr/lib/initcpio/install"), exist_ok=True)
     os.makedirs(os.path.join(ROOTFS, "usr/lib/initcpio/hooks"), exist_ok=True)
@@ -622,7 +636,9 @@ def step_iso():
          "-p", "(cd0)/boot/grub"] + modules)
     # signe le grub EFI (l'etape secureboot a pu tourner avant la creation d'efiwork)
     if os.path.exists(os.path.join(WORK, "sb", "sb.key")):
-        run([sys.executable, os.path.join(TOOLS, "sb_sign.py"), "--efi-only"], check=False)
+        run([sys.executable, os.path.join(TOOLS, "sb_sign.py"), "--efi-only"], check=True)
+        if not os.path.exists(os.path.join(WORK, "efiwork", "EFI/BOOT/grubx64.efi")):
+            raise RuntimeError("grubx64.efi non signe -> Secure Boot incomplet")
     # Secure Boot : si le shim MS-signe est present, BOOTX64.EFI = shim (1er etage),
     # grub signe devient grubx64.efi (2e etage verifie contre MOK), mmx64.efi = MokManager
     shim = os.path.join(WORK, "shim", "shimx64.efi")
@@ -690,12 +706,18 @@ def step_secureboot():
     """Secure Boot : shim signe Microsoft + grub/noyaux/modules signes (cle MOK embarquee).
     Non bloquant : si le shim ne peut pas etre telecharge, on signe quand meme
     grub/noyaux/modules et on retombe sur BOOTX64.EFI = grub (Secure Boot off requis)."""
+    # STRICT : Secure Boot est une fonction annoncee -> tout composant doit etre
+    # present et signe, sinon le build ECHOUE (pas de "succes" partiel).
     r = run([sys.executable, os.path.join(TOOLS, "fetch_shim.py")], check=False)
     if r.returncode != 0 or not os.path.exists(os.path.join(WORK, "shim", "shimx64.efi")):
-        print("[build] shim indisponible (reseau ?) -> mode sans shim, SB off requis", flush=True)
-    r = run([sys.executable, os.path.join(TOOLS, "sb_sign.py")], check=False)
-    if r.returncode != 0:
-        print("[build] sb_sign a echoue (non bloquant) -> ISO sans signature SB", flush=True)
+        raise RuntimeError("shim Microsoft (shim-signed) introuvable -> impossible de produire une ISO Secure Boot")
+    if not os.path.exists(os.path.join(WORK, "shim", "mmx64.efi")):
+        raise RuntimeError("MokManager (mmx64.efi) introuvable avec le shim")
+    run([sys.executable, os.path.join(TOOLS, "sb_sign.py")], check=True)   # exit 1 si signature incomplete
+    for f in ("usr/share/pasteque/mok/Pasteque.der", "usr/share/pasteque/mok/FINGERPRINT.txt"):
+        if not os.path.exists(os.path.join(ROOTFS, f)):
+            raise RuntimeError("cle MOK non embarquee: " + f)
+    print("[build] Secure Boot: shim+MokManager presents, EFI/noyaux/modules signes, MOK embarque", flush=True)
 
 
 STEPS = {
@@ -707,7 +729,7 @@ STEPS = {
     "initramfs": step_initramfs,
     "iso": step_iso,
     "secureboot": step_secureboot,
-    "all": lambda: [step_tools(), step_bootstrap(), step_install(), step_aur(), step_extras(), step_initramfs(), step_secureboot(), step_iso()],
+    "all": lambda: [step_tools(), step_bootstrap(), step_install(), step_aur(), step_extras(), step_secureboot(), step_initramfs(), step_iso()],
 }
 
 if __name__ == "__main__":

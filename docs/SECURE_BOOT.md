@@ -16,16 +16,50 @@ firmware (db Microsoft)
 - Outils de build : `tools/fetch_shim.py` (shim Ubuntu), `tools/sb_sign.py` (clé + signatures),
   étape `secureboot` du build.
 
-## Enrôlement (UNE seule fois, par machine)
+## Enrôlement de la clé MOK (UNE seule fois, par machine)
 
-1. BIOS : **Secure Boot = Enabled**.
-2. Boot la clé Pastèque → si la clé Pastèque n'est pas dans le MOK, le firmware bloque
-   (écran « Secure Boot violation »).
-3. Sur une session Pastèque (ou live) : `sudo mokutil --import /usr/share/pasteque/mok/Pasteque.der`
-   → entrer un mot de passe temporaire → **redémarrer**.
-4. Au boot, écran bleu **MokManager** : `Enroll key` → `Continue` → `Yes` → entrer le mot de passe → `Reboot`.
-5. Vérifier : `pasteque-secureboot` (affiche l'état + l'empreinte), `mokutil --sb-state` → `SecureBoot enabled`,
-   `mokutil --test-key /usr/share/pasteque/mok/Pasteque.der` → clé connue.
+La clé privée de build ne quitte jamais la machine de build ; seule la **clé publique**
+`Pasteque.der` (embarquée dans l'ISO à `/usr/share/pasteque/mok/Pasteque.der`) doit être
+enrôlée dans le MOK de chaque PC.
+
+### Méthode recommandée (deux boots)
+
+1. **Premier boot avec Secure Boot = OFF** (BIOS) : la clé Pastèque démarre normalement
+   (le shim laisse passer, les signatures sont ignorées).
+2. Dans la session live (ou installée), demander l'enrôlement :
+   ```bash
+   sudo mokutil --import /usr/share/pasteque/mok/Pasteque.der
+   ```
+   → entrer un **mot de passe temporaire** (8–64 caractères, à ressaisir au prochain boot), confirmez.
+   (`mokutil --import` écrit la demande dans la variable EFI `MokNew`.)
+3. **Redémarrer**, puis dans le BIOS passer **Secure Boot = ON**.
+4. Au boot suivant, le shim (signé Microsoft, donc accepté par `db`) voit `MokNew` pending
+   et lance automatiquement le **MokManager** (écran bleu) :
+   `Enroll MOK` → `Continue` → `Yes` → saisissez le mot de passe → `Reboot`.
+5. Vérifications :
+   ```bash
+   mokutil --sb-state                                  # -> SecureBoot enabled
+   mokutil --test-key /usr/share/pasteque/mok/Pasteque.der   # -> "is already in the MOK list" / known
+   pasteque-secureboot                                 # empreinte + état
+   dmesg | grep -i "secure boot"                       # -> "Secure Boot enabled"
+   ```
+
+### Méthode alternative (un seul boot, clé USB FAT)
+
+1. Copier `Pasteque.der` à la racine d'une **petite clé USB formatée en FAT**.
+2. Boot avec **Secure Boot = ON** : le shim bloque `grubx64.efi` (non signé par `db`)
+   et affiche « Security Violation » ; appuyez sur une touche pour entrer le **MokManager**.
+3. `Enroll MOK` → `View key` / choisissez le fichier `Pasteque.der` sur la clé USB → `Continue` → `Yes` → `Reboot`.
+
+### Points importants
+
+- La clé embarquée dans l'ISO (`/usr/share/pasteque/mok/Pasteque.der`) correspond à la clé
+  de build courante (`work/sb/`, empreinte dans `FINGERPRINT.txt`). Si l'ISO est rebuildée
+  avec une **nouvelle** clé SB, il faut ré-enrôler la nouvelle clé (et révoquer l'ancienne :
+  MokManager → `Reset MOK` ou `Delete MOK`).
+- Sans enrôlement, Secure Boot ON bloque le boot (comportement normal, voir ci-dessous).
+- `mokutil --import` nécessite une session démarrée : faites donc d'abord un boot
+  Secure Boot OFF (méthode 1), ou utilisez la méthode clé USB (méthode 2).
 
 ## Sans enrôlement
 
