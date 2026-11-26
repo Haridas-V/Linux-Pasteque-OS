@@ -27,7 +27,7 @@ jobs:
             set -e   # AUCUN masquage : un test obligatoire qui echoue fait echouer le workflow
             export DEBIAN_FRONTEND=noninteractive
             apt-get update
-            apt-get install -y --no-install-recommends python3 python3-pil python3-zstandard ca-certificates e2fsprogs ovmf libvirt-clients
+            apt-get install -y --no-install-recommends python3 python3-pil python3-zstandard ca-certificates e2fsprogs ovmf python3-virt-firmware
             python3 tools/fetch_deb_tools.py
             python3 tools/build_sandbox.py all
             python3 tools/check_isohybrid.py out/*.iso

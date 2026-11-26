@@ -70,13 +70,14 @@ def build_vars_with_key(vars_in, der, out_path):
     if not fw:
         return None
     shutil.copy2(vars_in, out_path)
-    r = subprocess.run([fw, "--input", out_path, "--output", out_path,
-                        "--add-db", der, "Pasteque Linux Secure Boot"],
-                       capture_output=True, text=True)
-    if r.returncode != 0:
-        print("[sb] virt-fw-vars a echoue:", r.stderr[-300:], flush=True)
-        return None
-    return out_path
+    # syntaxe moderne (python3-virt-firmware) : --inplace ; l'ancien -i/-o --output en repli
+    for argv in ([fw, "--inplace", out_path, "--add-db", der],
+                 [fw, "--input", out_path, "--output", out_path, "--add-db", der]):
+        r = subprocess.run(argv, capture_output=True, text=True)
+        if r.returncode == 0:
+            return out_path
+        print("[sb] virt-fw-vars %s a echoue: %s" % (argv[1], r.stderr[-200:]), flush=True)
+    return None
 
 
 def boot_once(qemu, code_fd, vars_fd, iso, sock, timeout, extra_append=""):
