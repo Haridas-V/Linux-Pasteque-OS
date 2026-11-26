@@ -9,8 +9,11 @@ le shim, et le noyau en lockdown) :
       -> vmlinuz (EFI stub signe) -> initramfs -> modules .ko signes (verifies
          par le noyau en lockdown : un module non signe est REJETE)
 
-Controle negatif : meme boot avec un varstore SANS notre cle -> le shim doit
-BLOQUER (pas de prompt login) => prouve que le test positif n'est pas vide.
+Controle negatif : meme boot avec un varstore SANS notre cle (mais Secure Boot ON,
+cles Microsoft seules) -> le shim doit BLOQUER (pas de prompt login) => prouve que
+le test positif n'est pas vide. Les deux varstores sont construits avec
+`virt-fw-vars --secure-boot` explicite et RE-LUS (`--print --verbose`) pour exiger
+SecureBoot=ON avant de booter : un varstore sans SB actif invaliderait le test.
 
 Sortie : exit 0 si positif OK ET negatif bloque ; exit 2 sinon ; exit 3 si
 outils absents (OVMF secboot / virt-fw-vars / qemu) — appele alors SKIP explicite.
@@ -47,37 +50,95 @@ def find_qemu():
     return None
 
 
+# GUID de la variable db (EFI_IMAGE_SECURITY_DATABASE) — owner requis par virt-fw-vars
+DB_GUID = "d719b2cb-3d3a-4596-a3bc-dad00e67656f"
+
+
 def find_ovmf():
-    """Retourne (code_secboot, vars) — OVMF avec Secure Boot compilé."""
-    cands_code = [
+    """Retourne (code_secboot, vars_ms, vars_plain).
+    - code : firmware OVMF compile AVEC Secure Boot (OVMF_CODE_4M.secboot.fd)
+    - vars_ms : template varstore AVEC cles Microsoft + SB pre-active (OVMF_VARS_4M.ms.fd,
+      paquet ovmf Debian/Ubuntu) — PREFERE, sinon le shim signe MS ne verifie pas.
+    - vars_plain : varstore vierge (setup mode) — repli : on activera SB nous-memes
+      (--secure-boot) et on enrolera les cles MS (--enroll-redhat ajoute les cles MS a db)."""
+    code_cands = [
         "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd",
         "/usr/share/ovmf/OVMF_CODE_4M.secboot.fd",
         os.path.join(TROOT, "usr/share/OVMF/OVMF_CODE_4M.secboot.fd"),
         os.path.join(TROOT, "usr/share/ovmf/OVMF_CODE_4M.secboot.fd"),
     ]
-    cands_vars = [c.replace("OVMF_CODE_4M.secboot.fd", "OVMF_VARS_4M.fd") for c in cands_code] + [
+    ms_cands = [
+        "/usr/share/OVMF/OVMF_VARS_4M.ms.fd",
+        "/usr/share/ovmf/OVMF_VARS_4M.ms.fd",
+        "/usr/share/OVMF/OVMF_VARS.secboot.fd",
+        "/usr/share/ovmf/OVMF_VARS.secboot.fd",
+        os.path.join(TROOT, "usr/share/OVMF/OVMF_VARS_4M.ms.fd"),
+        os.path.join(TROOT, "usr/share/ovmf/OVMF_VARS_4M.ms.fd"),
+    ]
+    plain_cands = [
         "/usr/share/OVMF/OVMF_VARS_4M.fd",
         "/usr/share/ovmf/OVMF_VARS_4M.fd",
+        "/usr/share/OVMF/OVMF_VARS.fd",
+        "/usr/share/ovmf/OVMF_VARS.fd",
+        os.path.join(TROOT, "usr/share/OVMF/OVMF_VARS_4M.fd"),
+        os.path.join(TROOT, "usr/share/ovmf/OVMF_VARS_4M.fd"),
     ]
-    code = next((c for c in cands_code if os.path.exists(c)), None)
-    vars_ = next((v for v in cands_vars if os.path.exists(v)), None)
-    return code, vars_
+    code = next((c for c in code_cands if os.path.exists(c)), None)
+    vars_ms = next((v for v in ms_cands if os.path.exists(v)), None)
+    vars_plain = next((v for v in plain_cands if os.path.exists(v)), None)
+    return code, vars_ms, vars_plain
 
 
-def build_vars_with_key(vars_in, der, out_path):
-    """Enrôle le certificat DER dans la variable db du varstore OVMF (virt-fw-vars)."""
+def run_fw(fw, argv):
+    r = subprocess.run([fw] + argv, capture_output=True, text=True)
+    if r.returncode != 0:
+        print("[sb] virt-fw-vars %s a echoue (rc=%d): %s" % (argv[0], r.returncode, (r.stderr or "")[-300:]), flush=True)
+    return r
+
+
+def build_vars(vars_base, out_path, der=None, enroll_ms=False):
+    """Construit un varstore avec Secure Boot ACTIVÉ (--secure-boot, jamais suppose),
+    optionnellement + notre cle dans db (--add-db GUID FILE, DER ou PEM accepte),
+    et + les cles Microsoft dans db si le template de base est vierge."""
     fw = shutil.which("virt-fw-vars")
     if not fw:
         return None
-    shutil.copy2(vars_in, out_path)
-    # syntaxe moderne (python3-virt-firmware) : --inplace ; l'ancien -i/-o --output en repli
-    for argv in ([fw, "--inplace", out_path, "--add-db", der],
-                 [fw, "--input", out_path, "--output", out_path, "--add-db", der]):
-        r = subprocess.run(argv, capture_output=True, text=True)
-        if r.returncode == 0:
-            return out_path
-        print("[sb] virt-fw-vars %s a echoue: %s" % (argv[1], r.stderr[-200:]), flush=True)
-    return None
+    shutil.copy2(vars_base, out_path)
+    argv = ["--inplace", out_path, "--secure-boot"]   # SB ON explicite, sinon test VIDE
+    if enroll_ms:
+        argv.append("--enroll-redhat")  # ajoute PK/KEK + cles MS (db) au varstore vierge
+    if der:
+        argv += ["--add-db", DB_GUID, der]
+    if run_fw(fw, argv).returncode != 0:
+        return None
+    return out_path
+
+
+def verify_sb_on(vars_path, expect_cn=None):
+    """Auto-verification anti-test-vide : relit le varstore et exige SecureBoot ON
+    (et la presence de notre certificat dans db si expect_cn fourni)."""
+    fw = shutil.which("virt-fw-vars")
+    r = subprocess.run([fw, "--input", vars_path, "--print", "--verbose"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        print("[sb] impossible de relire le varstore: %s" % (r.stderr or "")[-200:], flush=True)
+        return False
+    lines = r.stdout.splitlines()
+    sb_on = False
+    for i, line in enumerate(lines):
+        low = line.lower()
+        # format --print --verbose : "name=SecureBootEnable ..." suivi de "  bool: ON"
+        if low.startswith("name=") and "secureboot" in low:
+            val = lines[i + 1].lower() if i + 1 < len(lines) else ""
+            if "bool: on" in val:
+                sb_on = True
+    if not sb_on:
+        print("[sb] VARSTORE SANS SECURE BOOT ACTIF -> le test serait VIDE, on refuse", flush=True)
+        return False
+    if expect_cn and expect_cn.lower() not in r.stdout.lower():
+        print("[sb] certificat %r absent de db dans le varstore" % expect_cn, flush=True)
+        return False
+    return True
 
 
 def boot_once(qemu, code_fd, vars_fd, iso, sock, timeout, extra_append=""):
@@ -136,23 +197,27 @@ def main():
         print("[sb] ERREUR: cle MOK %s introuvable (build secureboot incomplet ?)" % der, flush=True)
         sys.exit(2)
     qemu = find_qemu()
-    code, vars_ = find_ovmf()
+    code, vars_ms, vars_plain = find_ovmf()
     fw = shutil.which("virt-fw-vars")
-    if not (qemu and code and vars_ and fw):
-        print("[sb] SKIP explicite: outils absents (qemu=%s ovmf_secboot=%s vars=%s virt-fw-vars=%s)"
-              % (bool(qemu), bool(code), bool(vars_), bool(fw)), flush=True)
-        print("[sb] -> test Secure Boot NON EXECUTE dans cet environnement (sera execute en CI avec ovmf+libvirt-clients)", flush=True)
+    base = vars_ms or vars_plain
+    if not (qemu and code and base and fw):
+        print("[sb] SKIP explicite: outils absents (qemu=%s ovmf_secboot=%s vars_ms=%s vars_plain=%s virt-fw-vars=%s)"
+              % (bool(qemu), bool(code), bool(vars_ms), bool(vars_plain), bool(fw)), flush=True)
+        print("[sb] -> test Secure Boot NON EXECUTE ici (en CI: paquets ovmf + python3-virt-firmware requis)", flush=True)
         sys.exit(3)
 
     work = os.path.join(HERE, "artifacts", "sb-test")
     os.makedirs(work, exist_ok=True)
-    vars_ok = os.path.join(work, "vars-sb-on.fd")
-    vars_ko = os.path.join(work, "vars-sb-off.fd")
-    shutil.copy2(vars_, vars_ko)  # controle negatif : varstore d'origine (cles MS seules)
-    if not build_vars_with_key(vars_, der, vars_ok):
-        print("[sb] ERREUR: impossible d'enrôler la cle dans db", flush=True)
+    vars_ok = os.path.join(work, "vars-sb-on.fd")   # SB ON + cle Pastèque dans db (positif)
+    vars_ko = os.path.join(work, "vars-sb-off.fd")  # SB ON, cles MS seules (controle negatif)
+    enroll_ms = vars_ms is None  # template vierge -> enroler les cles MS nous-memes
+    if not build_vars(base, vars_ko, der=None, enroll_ms=enroll_ms) or not verify_sb_on(vars_ko):
+        print("[sb] ERREUR: varstore negatif (SB on, sans notre cle) non constructible ou non verifie", flush=True)
         sys.exit(2)
-    print("[sb] varstore avec cle Pastèque en db: OK", flush=True)
+    if not build_vars(base, vars_ok, der=der, enroll_ms=enroll_ms) or not verify_sb_on(vars_ok, expect_cn="Pasteque Linux Secure Boot"):
+        print("[sb] ERREUR: impossible d'enrôler la cle Pastèque dans db (varstore positif invalide)", flush=True)
+        sys.exit(2)
+    print("[sb] varstores OK: Secure Boot verifie ON dans les deux, cle Pastèque en db pour le positif", flush=True)
 
     # --- test POSITIF : SB on + cle enrôlée -> boot complet attendu ---
     log, proc, state = boot_once(qemu, code, vars_ok, iso, os.path.join(work, "pos.sock"), timeout)

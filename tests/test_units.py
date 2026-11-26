@@ -518,6 +518,12 @@ def test_sb_boot_test_real():
     assert "secboot" in src and "virt-fw-vars" in src and "--add-db" in src
     assert "NEGATIF" in src and "BLOCKED" in src, "controle negatif requis"
     assert "module verification failed" in src, "doit verifier l'absence d'erreurs de verification modules"
+    # anti test-vide : SB doit etre activee EXPLICITEMENT dans le varstore et re-lue
+    assert "--secure-boot" in src, "Secure Boot doit etre activee explicitement (--secure-boot), pas supposee"
+    assert "OVMF_VARS_4M.ms.fd" in src, "template MS requis (le shim signe MS doit verifier contre db)"
+    assert "verify_sb_on" in src, "le varstore doit etre re-lu pour exiger SecureBoot=ON (anti varstore vide)"
+    assert '"--add-db", DB_GUID, der' in src, "virt-fw-vars 24.x exige --add-db GUID FILE (nargs=2)"
+    assert "enroll-redhat" in src, "repli varstore vierge: cles MS enroulees automatiquement"
 
 
 def test_test_suites_exit_nonzero_on_failure():
