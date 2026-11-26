@@ -147,7 +147,9 @@ def boot_once(qemu, code_fd, vars_fd, iso, sock, timeout, extra_append=""):
         os.remove(sock)
     append = "archisolabel=PASTEQUE archisobasedir=arch console=ttyS0,115200" + extra_append
     proc = subprocess.Popen([
-        qemu, "-machine", "q35", "-m", "2048", "-smp", "2",
+        qemu, "-machine", "q35,smm=on", "-m", "2048", "-smp", "2",
+        # pflash "secure" requis par OVMF secboot (protection du varstore), OK en TCG
+        "-global", "driver=cfi.pflash01,property=secure,value=on",
         "-drive", "if=pflash,format=raw,readonly=on,file=" + code_fd,
         "-drive", "if=pflash,format=raw,file=" + vars_fd,
         "-cdrom", iso, "-boot", "d",
