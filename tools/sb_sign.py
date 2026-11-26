@@ -123,7 +123,8 @@ def sbsign(src, dst, key, crt):
         print("[sb] ERREUR sbsign", src, r.stderr[-300:], file=sys.stderr)
         sys.exit(1)
     if SBVERIFY:
-        v = run([SBVERIFY, "--cert", os.path.join(SB, "Pasteque.der"), dst])
+        # sbverify attend un certificat PEM (le DER sert au MOK/mokutil)
+        v = run([SBVERIFY, "--cert", crt, dst])
         if v.returncode != 0:
             print("[sb] ERREUR sbverify", dst, v.stderr[-300:], file=sys.stderr)
             sys.exit(1)
