@@ -424,12 +424,19 @@ def phase_live_and_install(iso, rep, outdir):
             return
     ser.run("base64 -d /newroot/tmp/live_tests.b64 > /newroot/tmp/live_tests.sh && chmod +x /newroot/tmp/live_tests.sh", timeout=30)
     rep.check("live-upload-script", True, "")
-    out, rc = ser.run("chroot /newroot /bin/bash /tmp/live_tests.sh", timeout=900)
+    # env -i + --norc : evite les sequences OSC 3008 de bash 5.3 (shell integration)
+    # qui se collent aux lignes PASS/FAIL et cassent le parsing
+    out, rc = ser.run("chroot /newroot /usr/bin/env -i HOME=/root TERM=dumb "
+                      "PATH=/usr/local/bin:/usr/bin:/usr/sbin:/bin "
+                      "/bin/bash --noprofile --norc /tmp/live_tests.sh", timeout=900)
     open(os.path.join(outdir, "live-tests.txt"), "w").write(out)
     open(os.path.join(outdir, "serial-live.log"), "w").write(ser.log.decode("utf-8", "replace"))
-    for line in out.splitlines():
-        if line.startswith(("PASS ", "FAIL ")):
-            rep.check("live: " + line.split(None, 1)[1], line.startswith("PASS"), "")
+    clean = re.sub(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)", "", out)   # OSC
+    clean = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", clean)            # CSI
+    for line in clean.splitlines():
+        m = re.search(r"(?:^|\s)(PASS|FAIL) ([a-z0-9-]+)", line)
+        if m:
+            rep.check("live: " + m.group(2), m.group(1) == "PASS", "")
     m = re.search(r"RESULT live-tests PASS=(\d+) FAIL=(\d+)", out)
     rep.check("live-batterie-globale", rc == 0 and m is not None and m.group(2) == "0",
               m.group(0) if m else out[-300:])

@@ -337,6 +337,9 @@ def step_install():
             else:
                 shutil.copy2(s, d)
     print("[build] overlay applied", flush=True)
+    # GPGDir de pacman.conf doit exister dans la rootfs, sinon toute commande pacman
+    # echoue dans le systeme live/installe ("failed to resolve path ... GPGDir")
+    os.makedirs(os.path.join(ROOTFS, "etc/pacman.d/gnupg"), exist_ok=True)
     # conf pacman de production (celle livrée dans l'ISO)
     shutil.copy2(os.path.join(PROFILE, "pacman.conf"), os.path.join(ROOTFS, "etc/pacman.conf"))
     # locales

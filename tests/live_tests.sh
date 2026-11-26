@@ -80,7 +80,7 @@ t appindexer-appimage bash -c "ls $H/.local/share/applications/pasteque-monapp.d
 mkdir -p $H/.local/share/Trash/files
 echo "donnees-importantes" > $H/.local/share/Trash/files/rapport.txt
 chown -R testeur:testeur $H 2>/dev/null; runuser -u testeur -- /usr/bin/python3 /usr/local/bin/pasteque-rotating-trash
-t trash-copie bash -c "ls $H/.local/share/pasteque-trash/rapport.txt.* >/dev/null"
+t trash-copie bash -c "ls $H/.local/share/pasteque-trash/ 2>&1; ls $H/.local/share/pasteque-trash/rapport.txt.* >/dev/null"
 chown -R testeur:testeur $H 2>/dev/null; runuser -u testeur -- /usr/local/bin/pasteque-trash-restore rapport.txt
 t trash-restaure bash -c "grep -q donnees-importantes $H/Restaures-pasteque/rapport.txt"
 
@@ -125,7 +125,7 @@ t priorites-smoke /usr/local/bin/pasteque-priorites --smoke
 t parefeu-smoke /usr/local/bin/pasteque-parefeu --smoke
 t diagnostic-smoke /usr/local/bin/pasteque-diagnostic --smoke
 t grub-theme test -f /usr/share/grub/themes/pasteque/theme.txt -a -f /usr/share/pasteque/logo.png
-t gamescope-test pacman -Q gamescope smartmontools >/dev/null 2>&1
+t gamescope-test bash -c 'ok=1; for p in gamescope smartmontools; do pacman -Q "$p" >/dev/null 2>&1 || { echo "manquant: $p"; ok=0; }; done; exit $ok'
 t scripts-audit bash -c 'for f in /usr/local/bin/pasteque-*; do test -x "$f" || { echo "non executable: $f"; exit 1; }; head -1 "$f" | grep -q python && python3 -m py_compile "$f" || bash -n "$f" || { echo "syntaxe KO: $f"; exit 1; }; done'
 t anticheat-helpers test -x /usr/local/bin/pasteque-anticheat-setlaunch -a -x /usr/local/bin/pasteque-anticheat-warn
 t finalize-present test -x /usr/local/bin/pasteque-finalize-install -a -x /usr/local/bin/pasteque-install-extras -a -x /usr/local/bin/pasteque-grub-snapshots
