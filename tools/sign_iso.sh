@@ -12,7 +12,7 @@ DIR="$(dirname "$ISO")"
 BASE="$(basename "$ISO")"
 
 # empreinte SHA256 (toujours)
-sha256sum "$ISO" > "$ISO.sha256"
+(cd "$(dirname "$ISO")" && sha256sum "$(basename "$ISO")" > "$(basename "$ISO").sha256")
 echo "[sign] sha256 OK -> $ISO.sha256"
 
 # signature GPG détachée si une clé est disponible

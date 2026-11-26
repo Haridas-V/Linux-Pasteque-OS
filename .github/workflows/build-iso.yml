@@ -36,7 +36,7 @@ jobs:
             if [ -n "${PASTEQUE_GPG_KEY:-}" ]; then
               bash tools/sign_iso.sh "$ISO"
             else
-              sha256sum "$ISO" > "$ISO.sha256"; echo "[sign] pas de cle GPG secret -> sha256 seul"
+              (cd "$(dirname "$ISO")" && sha256sum "$(basename "$ISO")" > "$(basename "$ISO").sha256"); echo "[sign] pas de cle GPG secret -> sha256 seul"
             fi
             # tests obligatoires : exit non nul = echec du workflow (set -e)
             python3 tests/run_vm_test.py --timeout 900
