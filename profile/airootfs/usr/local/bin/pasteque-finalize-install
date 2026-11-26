@@ -60,7 +60,7 @@ mkinitcpio -P || { echo "[pasteque-finalize] ERREUR mkinitcpio -P" >&2; exit 1; 
 os-prober >/dev/null 2>&1 || true
 grub-mkconfig -o /boot/grub/grub.cfg || { echo "[pasteque-finalize] ERREUR grub-mkconfig" >&2; exit 1; }
 # installer les extras pour l'utilisateur créé
-/usr/bin/python3 /usr/local/bin/pasteque-install-extras 2>/dev/null || true
+/usr/bin/python3 /usr/local/bin/pasteque-install-extras || { echo '[pasteque-finalize] ERREUR install-extras (applis offline manquantes)' >&2; exit 1; }
 # entrée de menu pour le gestionnaire d'applications Pastèque
 update-desktop-database /usr/share/applications 2>/dev/null || true
 echo "[pasteque-finalize] OK"

@@ -530,6 +530,22 @@ def test_test_suites_exit_nonzero_on_failure():
         assert pat in src, "pattern de sortie non trouve dans %s: %s" % (f, pat)
 
 
+def test_grub_snapshots_bootable():
+    """Les entrees de menu snapshots doivent etre bootables : vrai UUID de /,
+    pas de PLACEHOLDER, et grub-mkconfig non masque."""
+    src = open(os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-grub-snapshots"), encoding="utf-8").read()
+    assert "UUID=PLACEHOLDER" not in src, "entree snapshot non bootable (PLACEHOLDER)"
+    assert "findmnt -n -o UUID /" in src, "UUID reel de / requis"
+    assert "grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true" not in src, "grub-mkconfig masque"
+
+
+def test_finalize_extras_loud():
+    """install-extras a l'install : echec = fatal (applis offline = promesse centrale)."""
+    src = open(os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-finalize-install"), encoding="utf-8").read()
+    assert "install-extras 2>/dev/null || true" not in src, "echec install-extras masque"
+    assert "install-extras ||" in src and "exit 1" in src, "install-extras doit etre fatal"
+
+
 if __name__ == "__main__":
     t("py_compile tous les scripts", compile_all)
     t("bash -n tous les scripts shell", bash_n_all)
@@ -563,6 +579,8 @@ if __name__ == "__main__":
     t("build : depmod loud (log+fatal) + mkinitcpio principal patché", test_depmod_build_loud)
     t("sb_boot_test.py : vrai test OVMF secboot positif+negatif", test_sb_boot_test_real)
     t("suites VM : exit non nul si echec", test_test_suites_exit_nonzero_on_failure)
+    t("entrees snapshots GRUB bootables (UUID reel, grub-mkconfig non masque)", test_grub_snapshots_bootable)
+    t("finalize-install : install-extras en fatal", test_finalize_extras_loud)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

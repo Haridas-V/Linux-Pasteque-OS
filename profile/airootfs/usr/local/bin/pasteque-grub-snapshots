@@ -2,6 +2,10 @@
 # Génère /etc/grub.d/40_pasteque_snapshots avec une entrée par snapshot Btrfs
 set -e
 OUT=/etc/grub.d/40_pasteque_snapshots
+# UUID reel de la racine (sinon les entrees snapshot ne bootent jamais)
+ROOTUUID=$(findmnt -n -o UUID / 2>/dev/null || blkid -s UUID -o value /dev/$(findmnt -n -o SOURCE / | sed 's/\[.*\]//') 2>/dev/null)
+[ -n "$ROOTUUID" ] || { echo "ERREUR: UUID de / introuvable" >&2; exit 1; }
+ROOTDEV=$(findmnt -n -o SOURCE / | sed 's/\[.*\]//')
 {
   echo '#!/bin/sh'
   echo 'cat <<EOF'
@@ -10,12 +14,12 @@ OUT=/etc/grub.d/40_pasteque_snapshots
     n=$(basename "$s")
     echo "menuentry 'Pastèque - snapshot $n' {"
     echo "  load_video"
-    echo "  set root='hd0,1'"
-    echo "  linux /boot/vmlinuz-linux root=UUID=PLACEHOLDER rootflags=subvol=@/.snapshots/$n"
+    echo "  search --no-floppy --fs-uuid --set=root $ROOTUUID"
+    echo "  linux /boot/vmlinuz-linux root=UUID=$ROOTUUID rootflags=subvol=@/.snapshots/$n"
     echo "  initrd /boot/initramfs-linux.img"
     echo "}"
   done
   echo 'EOF'
 } > "$OUT"
 chmod +x "$OUT"
-grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
+grub-mkconfig -o /boot/grub/grub.cfg || echo "ATTENTION: grub-mkconfig a echoue, entrees snapshots non ecrites dans le menu" >&2
