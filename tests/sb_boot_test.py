@@ -103,8 +103,10 @@ def boot_once(qemu, code_fd, vars_fd, iso, sock, timeout, extra_append=""):
             if proc.poll() is not None:
                 break
             time.sleep(2)
-            data = ser.drain(1.5)
-            low = data.lower()
+            ser.drain(1.5)
+            # on scanne l'historique COMPLET (ser.log), pas seulement le dernier
+            # morceau, pour ne pas rater un marqueur coupe entre deux lectures
+            low = ser.log.decode("utf-8", "replace").lower()
             if "login:" in low or "reached target" in low or "multi-user" in low:
                 ser.drain(3)
                 return ser.log.decode("utf-8", "replace"), proc, "LOGIN_OK"
@@ -155,7 +157,8 @@ def main():
     # --- test POSITIF : SB on + cle enrôlée -> boot complet attendu ---
     log, proc, state = boot_once(qemu, code, vars_ok, iso, os.path.join(work, "pos.sock"), timeout)
     open(os.path.join(work, "serial-sb-on.log"), "w").write(log or "")
-    sb_enabled = bool(log) and "secure boot enabled" in log.lower()
+    sb_enabled = bool(log) and ("secure boot enabled" in log.lower()
+                                or "locked down from efi secure boot" in log.lower())
     mod_fail = bool(log) and ("module verification failed" in log.lower())
     login_ok = state == "LOGIN_OK"
     print("[sb] POSITIF: etat=%s login=%s secureboot_enabled=%s module_verification_failed=%s"
