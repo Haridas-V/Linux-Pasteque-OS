@@ -28,7 +28,7 @@ Dernier commit : voir `git log -1`. Dernier run CI vert connu : `45730337362` (d
 - [x] `add_module` par chemin .ko = erreur mkinitcpio (exit 1) → retour à `add_module` par nom
 - [x] `rdinit=/bin/bash` fait paniquer le noyau (« Unable to mount root fs ») → on garde `init=`
   (testé en local) ; phase live avec label bidon PASTEQUEZZZ pour garder le shell archiso
-- [ ] Run CI `45692017151` (9a58a4c) en cours — objectif FAILS=0 (boot BIOS/UEFI depuis CD inclus)
+- [x] Runs intermédiaires résolus (voir ci-dessous)
 - [x] Run `45714194999` (f470906) **VERT** : ETCHER_COMPATIBLE, BOOT_OK, **USB_BOOT_OK + USB_UEFI_BOOT_OK
   via vrai xHCI+usb-storage**, boot-bios-chargeur PASS, boot-uefi-chargeur PASS (CD), live-mount PASS,
   install btrfs + boot disque installé + sudo PASS, 84 PASS / 3 FAIL (les 3 = bugs de TEST, pas du produit :
@@ -40,9 +40,16 @@ Dernier commit : voir `git log -1`. Dernier run CI vert connu : `45730337362` (d
 - [x] Commit `97ba030` : chmod +x (git 100755) + filet de securite chmod au build + test unitaire
   « tous les pasteque-* en 755 » ; fix lire_cpu (1ere lecture) ; quoting scripts-audit ; util-apps
   diagnostique ; regex du test anti-unbound encore plus strict (21 tests unitaires PASS en local)
-- [ ] Run CI `45740640989` (97ba030) en cours — objectif **FAILS=0**
+- [x] Run `45740640989` (97ba030) VERT, FAILS=1 (gamescope-test, ligne masquée par `>/dev/null` mal placé)
+- [x] Run `45753207300` (befce01) VERT, FAILS=3 : cause = GPGDir `/etc/pacman.d/gnupg/` absent de la squashfs
+  -> pacman -Q échouait (rc=1) dans le système live (prouvé en local : AVANT=1, APRES OK après mkdir).
+  Fix : dir ajouté à l'overlay + makedirs au build. + inversion `exit $ok` -> `exit $bad` dans 2 tests
+- [x] **Run `45765266229` (4b7d18d) VERT — FAILS=0** 🎉 : 22 tests unitaires, ETCHER_COMPATIBLE, BOOT_OK,
+  USB_BOOT_OK + USB_UEFI_BOOT_OK (vrai xHCI), boot-bios-chargeur + boot-uefi-chargeur (CD), live-mount,
+  batterie live **PASS=55 FAIL=0**, install btrfs + boot disque installé + sudo, rapport **101 PASS / 0 FAIL**.
+  ISO 5893 MiB (~5,8 Go), run total 1h36 (06:00:41 → 07:37:08)
 - [ ] Validation matériel : `docs/POINTS_A_VALIDER_EN_MATERIEL.md` (GPU réel, Fortnite serveurs Epic, SB avec MOK, dual-boot, LUKS, 1440p/240Hz, manettes)
 - [x] Diagnostic boot CD QEMU résolu : cause = `ata_piix` absent du initramfs (logs serial lus via artifact `test-logs`) → ajouté au hook `pasteque_mods` (commit `49277ff`). Boot USB (chemin réel Etcher) toujours OK (`USB_BOOT_OK`/`USB_UEFI_BOOT_OK`)
 - [x] Run `45613769714` (2801011) VERT : 18/18 unitaires, ISO 5841 MiB, shim+SB embarqués, ETCHER_COMPATIBLE, USB_BOOT_OK+USB_UEFI_BOOT_OK, FAILS=3→0 attendu avec 49277ff (boot CD)
-- [ ] Run vert de `49277ff` (fix boot CD) — en cours
+- [x] Fix boot CD validé par les runs 45714194999 et suivants
 - [ ] Validation matériel : `docs/POINTS_A_VALIDER_EN_MATERIEL.md` (GPU réel, Fortnite serveurs Epic, SB avec MOK, dual-boot, LUKS, 1440p/240Hz, manettes)

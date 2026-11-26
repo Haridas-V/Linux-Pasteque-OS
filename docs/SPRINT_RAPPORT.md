@@ -8,7 +8,7 @@ Bilan honnête fait avant tout code : ce qui marche (build rootless, tests VM, C
 - Micro-bugs corrigés : comparaison chaînée morte (`pasteque-bootcheck`), `is False` (`pasteque-steamlibs`), nom paquet `kdeconnect`, apostrophe cassant le `bash -c` du workflow (garde-fou : test unitaire `bash -n`)
 - Dépendances verrouillées : `mistralai-agents==1.1.3` ; parité `build.sh` documentée ; code mort supprimé
 - **14 tests unitaires** exécutés en CI avant chaque build (`tests/test_units.py`) — tous PASS
-- Non-régression : run CI vert `487971d7` — build + `ETCHER_COMPATIBLE` + `USB_BOOT_OK` + `USB_UEFI_BOOT_OK` + install disque virtuel + boot système installé
+- **Run CI vert final `45765266229` (commit `4b7d18d`) — FAILS=0** : 22 tests unitaires PASS · ISO 5893 MiB (~5,8 Go) signée sha256 · `ETCHER_COMPATIBLE` · `BOOT_OK` (BIOS/CD isolinux) · boot UEFI/CD (OVMF+GRUB) · `USB_BOOT_OK` + `USB_UEFI_BOOT_OK` (vrai xHCI+usb-storage, chemin Etcher) · live-mount squashfs+overlay · batterie live **55/55 PASS** (rapport global **101 PASS / 0 FAIL**) · install disque virtuel btrfs + GRUB + boot système installé + login + sudo · durée totale du run 1h36
 
 ## Phase 2 — Apps natives intégrées (toutes avec `--smoke` headless, testées en VM)
 📝 Notes rapides (autosave JSON) · ⏱️ Minuteur (presets + notification) · 🐍 **Snake** (record sauvegardé) · 📊 Monitoring stylé (CPU/RAM/disque/temp, /proc pur) · 🎮 Lanceur de jeux (Steam + .exe/AppImages indexés + statut anti-cheat) · 🍉 **Fortnite 1-clic** (`pasteque-fortnite` : bouton JOUER, branche le Proton-GE embarqué dans Heroic, vérifie EAC, lance `heroic launch Fortnite`)
@@ -36,11 +36,11 @@ Panneau **🎨 Personnalisation** visible dans le menu : thème Breeze sombre (d
 
 ## Tests réellement exécutés (rien de fictif)
 - **19 tests unitaires** (`tests/test_units.py`) exécutés en local ET en CI avant chaque build : tous PASS
-- **CI GitHub Actions** (run __FINAL_RUN__, commit __FINAL_SHA__) : build rootless complet → ISO hybride → `ETCHER_COMPATIBLE` → boot BIOS depuis CD (isolinux) → boot UEFI depuis CD (OVMF+GRUB) → batterie ~50 checks en shell live (chroot sur la squashfs réelle) → install sur disque virtuel btrfs + grub → boot du système installé + login + sudo → boot USB « façon Etcher » BIOS **et** UEFI, maintenant via un **vrai contrôleur xHCI + usb-storage** → inspection des modules embarqués dans l'initramfs (artefact `initramfs-modules.txt`) → sha256 + vérification isohybrid + signature GPG de l'ISO si secrets présents
+- **CI GitHub Actions** (run 45765266229, commit 4b7d18d) : build rootless complet → ISO hybride → `ETCHER_COMPATIBLE` → boot BIOS depuis CD (isolinux) → boot UEFI depuis CD (OVMF+GRUB) → batterie ~50 checks en shell live (chroot sur la squashfs réelle) → install sur disque virtuel btrfs + grub → boot du système installé + login + sudo → boot USB « façon Etcher » BIOS **et** UEFI, maintenant via un **vrai contrôleur xHCI + usb-storage** → inspection des modules embarqués dans l'initramfs (artefact `initramfs-modules.txt`) → sha256 + vérification isohybrid + signature GPG de l'ISO si secrets présents
 - Artefacts : `pasteque-iso` (ISO ~4,7 Gio + .sha256 + .asc) et `test-logs` (report.md, serial-*.log, live-tests.txt, screendumps PNG)
 
 ## État CI
-Dernier run vert : `__FINAL_RUN__` (commit `__FINAL_SHA__`). Commandes :
+Dernier run vert : `45765266229` (commit `4b7d18d`). Commandes :
 ```bash
 gh run list --repo Haridas-V/Linux-Pasteque-OS --limit 1
 gh run download <ID> -n pasteque-iso     # ISO + sha256 (+ .asc si signé)
