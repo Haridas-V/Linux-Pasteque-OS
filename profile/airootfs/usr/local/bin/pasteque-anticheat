@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 HOME = os.path.expanduser("~")
-DB = "/usr/share/pasteque/anticheat-db.json"
+DB = os.environ.get("PASTEQUE_ANTICHEAT_DB", "/usr/share/pasteque/anticheat-db.json")
 STEAM = os.path.join(HOME, ".steam/steamapps")
 
 
