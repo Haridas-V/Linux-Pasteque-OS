@@ -126,7 +126,10 @@ def qemu_base(extra):
     return subprocess.Popen(cmd, env=tool_env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def wait_sock(path, proc, tries=40):
+def wait_sock(path, proc, tries=40, timeout=None):
+    """Attend l'apparition du socket unix. `timeout` (secondes) a la priorite sur `tries`."""
+    if timeout is not None:
+        tries = max(1, int(timeout / 0.5))
     for _ in range(tries):
         if os.path.exists(path):
             return True

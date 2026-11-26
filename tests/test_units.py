@@ -546,6 +546,29 @@ def test_finalize_extras_loud():
     assert "install-extras ||" in src and "exit 1" in src, "install-extras doit etre fatal"
 
 
+def test_wait_sock_call_sites_compat():
+    """Regression : sb_boot_test appelait wait_sock(..., timeout=60) alors que la
+    signature n'avait que tries= -> TypeError en CI. Verifie que CHAQUE appel
+    de wait_sock dans tests/ n'utilise que des kwargs presents dans la signature."""
+    import inspect
+    import re
+    sys.path.insert(0, os.path.join(REPO, "tests"))
+    import live_shell
+    params = set(inspect.signature(live_shell.wait_sock).parameters)
+    assert "timeout" in params, "wait_sock doit accepter timeout= (secondes)"
+    tdir = os.path.join(REPO, "tests")
+    for fn in sorted(os.listdir(tdir)):
+        if not fn.endswith(".py"):
+            continue
+        src = open(os.path.join(tdir, fn), encoding="utf-8").read()
+        for m in re.finditer(r"wait_sock\(([^)]*)\)", src):
+            args = m.group(1)
+            if "import" in args or "def " in args:
+                continue
+            for kw in re.findall(r"(\w+)\s*=", args):
+                assert kw in params, "%s: wait_sock appele avec kwarg inconnu %r (params=%s)" % (fn, kw, params)
+
+
 if __name__ == "__main__":
     t("py_compile tous les scripts", compile_all)
     t("bash -n tous les scripts shell", bash_n_all)
@@ -581,6 +604,7 @@ if __name__ == "__main__":
     t("suites VM : exit non nul si echec", test_test_suites_exit_nonzero_on_failure)
     t("entrees snapshots GRUB bootables (UUID reel, grub-mkconfig non masque)", test_grub_snapshots_bootable)
     t("finalize-install : install-extras en fatal", test_finalize_extras_loud)
+    t("wait_sock : tous les appels dans tests/ utilisent des kwargs valides (regression timeout=)", test_wait_sock_call_sites_compat)
     print()
     if FAIL:
         print("ECHECS:", FAIL)
