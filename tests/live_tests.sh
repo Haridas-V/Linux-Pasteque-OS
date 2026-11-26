@@ -114,7 +114,7 @@ t earlyoom test -L /etc/systemd/system/multi-user.target.wants/earlyoom.service
 t polkit-update test -f /etc/polkit-1/rules.d/49-pasteque.rules
 t kernel-lts bash -c "ls -d /usr/lib/modules/*lts* >/dev/null 2>&1"
 t dualboot-luks bash -c "command -v os-prober && command -v cryptsetup && grep -q 'enableLuksAutomatedPartitioning: true' /etc/calamares/modules/partition.conf && grep -q 'GRUB_DISABLE_OS_PROBER=false' /etc/default/grub"
-t util-apps bash -c 'ok=1; for p in kdeconnect blueman flameshot gnome-disk-utility; do pacman -Q "$p" >/dev/null 2>&1 || { echo "manquant: $p"; ok=0; }; done; exit $ok'
+t util-apps bash -c 'bad=0; for p in kdeconnect blueman flameshot gnome-disk-utility; do pacman -Q "$p" >/dev/null 2>&1 || { echo "manquant: $p"; bad=1; }; done; exit $bad'
 t apps-smoke bash -c 'export QT_QPA_PLATFORM=offscreen; for a in pasteque-notes pasteque-minuteur pasteque-snake pasteque-monitor; do /usr/local/bin/$a --smoke >/dev/null 2>&1 || exit 1; done'
 t generateur-demo bash -c "export QT_QPA_PLATFORM=offscreen; HOME=/tmp/fakehome3 /usr/local/bin/pasteque-genere --smoke 2>&1 | grep -q 'smoke=OK'"
 t personnalise-dryrun /usr/local/bin/pasteque-personnalise --dry-run
@@ -125,7 +125,7 @@ t priorites-smoke /usr/local/bin/pasteque-priorites --smoke
 t parefeu-smoke /usr/local/bin/pasteque-parefeu --smoke
 t diagnostic-smoke /usr/local/bin/pasteque-diagnostic --smoke
 t grub-theme test -f /usr/share/grub/themes/pasteque/theme.txt -a -f /usr/share/pasteque/logo.png
-t gamescope-test bash -c 'ok=1; for p in gamescope smartmontools; do pacman -Q "$p" >/dev/null 2>&1 || { echo "manquant: $p"; ok=0; }; done; exit $ok'
+t gamescope-test bash -c 'bad=0; for p in gamescope smartmontools; do pacman -Q "$p" >/dev/null 2>&1 || { echo "manquant: $p"; bad=1; }; done; exit $bad'
 t scripts-audit bash -c 'for f in /usr/local/bin/pasteque-*; do test -x "$f" || { echo "non executable: $f"; exit 1; }; head -1 "$f" | grep -q python && python3 -m py_compile "$f" || bash -n "$f" || { echo "syntaxe KO: $f"; exit 1; }; done'
 t anticheat-helpers test -x /usr/local/bin/pasteque-anticheat-setlaunch -a -x /usr/local/bin/pasteque-anticheat-warn
 t finalize-present test -x /usr/local/bin/pasteque-finalize-install -a -x /usr/local/bin/pasteque-install-extras -a -x /usr/local/bin/pasteque-grub-snapshots

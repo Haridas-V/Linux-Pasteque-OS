@@ -359,6 +359,18 @@ def test_local_bin_all_executable():
     assert not bad, "scripts non executables en git: " + "; ".join(bad)
 
 
+def test_exit_flag_idiom():
+    """L'idiome 'bad=0; cmd || bad=1; ...; exit $bad' doit renvoyer 0 quand tout passe
+    et 1 quand quelque chose echoue (bug reel CI : 'exit $ok' avec ok=1 -> exit 1
+    meme en cas de succes, ce qui faisait echouer util-apps/gamescope-test)."""
+    r = subprocess.run(["bash", "-c", "bad=0; true || bad=1; exit $bad"])
+    assert r.returncode == 0, "idiome exit $bad: tout OK doit -> rc 0"
+    r = subprocess.run(["bash", "-c", "bad=0; false || bad=1; exit $bad"])
+    assert r.returncode == 1, "idiome exit $bad: echec doit -> rc 1"
+    src = open(os.path.join(REPO, "tests/live_tests.sh"), encoding="utf-8").read()
+    assert "exit $ok" not in src, "anti-regression: ne plus utiliser 'exit $ok' (inversion)"
+
+
 if __name__ == "__main__":
     t("py_compile tous les scripts", compile_all)
     t("bash -n tous les scripts shell", bash_n_all)
@@ -381,6 +393,7 @@ if __name__ == "__main__":
     t("hooks initramfs : modules boot CD/USB + depmod + attente medium", test_initramfs_hooks_cd_boot)
     t("live_tests.sh : pas de $var non echappe dans bash -c (set -u)", test_live_tests_no_unbound_vars)
     t("usr/local/bin : tous les scripts pasteque-* en mode 755 dans git", test_local_bin_all_executable)
+    t("idiome exit \$bad (pas exit \$ok inverse) dans live_tests.sh", test_exit_flag_idiom)
     print()
     if FAIL:
         print("ECHECS:", FAIL)
