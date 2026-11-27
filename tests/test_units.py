@@ -566,6 +566,7 @@ def test_no_masked_critical_commands():
     le systeme : root verrouille, pare-feu, sddm, locale FR, services pasteque,
     creation user live, sha256 de l'ISO, import cle GPG quand une cle est fournie."""
     fin = open(os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-finalize-install"), encoding="utf-8").read()
+    assert "depmod -a ||" in fin, "finalize-install doit regenerer l'index kmod (modules .ko.zst->.ko signes) en FATAL"
     for bad in ("passwd -l root || true",
                 "systemctl enable firewalld 2>/dev/null || true",
                 "systemctl enable sddm 2>/dev/null || true",
@@ -650,6 +651,65 @@ def test_shim_signed_and_grub_sbat():
     assert m.pe_signed(bytes(fake2)), "PE avec cert table doit etre detecte signe"
 
 
+def test_kernel_signed_real_path_and_iso_guard():
+    """Regression reproduite en local avec vrais binaires : sbverify --list sur le noyau
+    de l'ISO -> 'No signature table present' ; boot SB -> 'error: bad shim signature'.
+    Cause : sb_sign signait /boot/vmlinuz-* (symlink, absent a l'etape secureboot dans
+    'all') au lieu de usr/lib/modules/<kv>/vmlinuz, que step_iso copie dans l'ISO.
+    -> sb_sign doit signer les chemins REELS (realpath) et echouer si aucun noyau ;
+    -> step_iso doit refuser un noyau non signe quand la chaine SB est active."""
+    import importlib.util
+    import tempfile
+    ss = open(os.path.join(REPO, "tools/sb_sign.py"), encoding="utf-8").read()
+    assert "def kernel_targets" in ss and "os.path.realpath" in ss, \
+        "sb_sign doit resoudre les vrais chemins de noyaux (realpath, anti-symlink)"
+    assert "aucun noyau" in ss and "sys.exit(1)" in ss, \
+        "sb_sign doit echouer (exit 1) si aucun noyau a signer — pas de succes masque"
+    assert "pe_signed" in ss, "sb_sign doit re-verifier la table de certs PE apres signature"
+    assert "usr/lib/modules/*/**/*.ko*" in ss, \
+        "le glob des modules doit couvrir kernel/ + updates/ + extra/ (sinon depmod .ko.zst dans le systeme installe)"
+    # test fonctionnel de kernel_targets : symlink /boot/vmlinuz-linux -> cible reelle
+    spec = importlib.util.spec_from_file_location("sb_sign_mod", os.path.join(REPO, "tools/sb_sign.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    with tempfile.TemporaryDirectory() as d:
+        kvdir = os.path.join(d, "usr/lib/modules/9.9.9-test/vmlinuz")
+        os.makedirs(os.path.dirname(kvdir))
+        open(kvdir, "wb").write(b"MZ" + b"\0" * 100)
+        bdir = os.path.join(d, "boot")
+        os.makedirs(bdir)
+        os.symlink("/usr/lib/modules/9.9.9-test/vmlinuz", os.path.join(bdir, "vmlinuz-linux"))
+        tgts = m.kernel_targets(d)
+        assert tgts == [os.path.realpath(kvdir)], \
+            "kernel_targets doit retourner la cible reelle dedupliquee, pas le symlink: %r" % (tgts,)
+        assert os.path.islink(os.path.join(bdir, "vmlinuz-linux")), "le symlink ne doit pas etre casse"
+        with tempfile.TemporaryDirectory() as d2:
+            assert m.kernel_targets(d2) == [], "kernel_targets vide si aucun noyau (main fera exit 1)"
+    bs = open(os.path.join(REPO, "tools/build_sandbox.py"), encoding="utf-8").read()
+    assert "def require_signed_iso_kernel" in bs, "step_iso doit avoir un garde 'noyau signe'"
+    assert bs.count("require_signed_iso_kernel(os.path.join(iso,") >= 2, \
+        "le garde doit couvrir vmlinuz-linux ET vmlinuz-lts embarques dans l'ISO"
+    assert "bad shim signature" in bs and "pe_signed" in bs and "sbverify" in bs, \
+        "le garde doit verifier la table de certs PE + sbverify --cert avec la cle de build"
+
+
+def test_sb_console_marker():
+    """Le test SB positif a besoin d'une preuve fiable que Secure Boot est actif :
+    les 1ers messages noyau partent avant la console serie -> le systeme live doit
+    imprimer lui-meme l'etat lu depuis le firmware (PASTEQUE-SECUREBOOT via securityfs),
+    et sb_boot_test.py doit lire ce marqueur."""
+    lu = open(os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-liveuser"), encoding="utf-8").read()
+    assert "PASTEQUE-SECUREBOOT" in lu and "/sys/kernel/security/secureboot" in lu, \
+        "pasteque-liveuser doit imprimer l'etat REEL du Secure Boot (securityfs) sur /dev/console"
+    assert "modprobe securityfs" in lu, "securityfs doit etre chargee avant le mount (sinon point de montage inexistant)"
+    assert "SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c" in lu, \
+        "repli sur l'efivar EFI SecureBoot requis si securityfs indisponible"
+    assert "> /dev/console" in lu, "le marqueur doit aller sur la console (visible en serie)"
+    st = open(os.path.join(REPO, "tests/sb_boot_test.py"), encoding="utf-8").read()
+    assert "pasteque-secureboot: 1" in st, "sb_boot_test doit accepter le marqueur PASTEQUE-SECUREBOOT: 1"
+    assert "pasteque-secureboot:" in st.split("sb_enabled")[0], "boot_once doit attendre le marqueur (grace)"
+
+
 def test_wait_sock_call_sites_compat():
     """Regression : sb_boot_test appelait wait_sock(..., timeout=60) alors que la
     signature n'avait que tries= -> TypeError en CI. Verifie que CHAQUE appel
@@ -713,6 +773,8 @@ if __name__ == "__main__":
     t("build strict : assets visuels verifies, locale-gen fatal, sshd off verifie, chmod fatal", test_build_strict_assets_and_ssh)
     t("sudoers wheel dans l'overlay + tests live 100% purs (pas d'auto-mutation)", test_sudoers_overlay_and_pure_live_tests)
     t("shim signe (variante .signed.latest + pe_signed) + grub-mkimage --sbat (anti rejet shim)", test_shim_signed_and_grub_sbat)
+    t("noyaux signes sur le chemin REEL (anti-symlink) + guard ISO : noyau non signe = build fail", test_kernel_signed_real_path_and_iso_guard)
+    t("marqueur console PASTEQUE-SECUREBOOT (securityfs) lu par sb_boot_test", test_sb_console_marker)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

@@ -50,3 +50,52 @@ Taille ISO : ~4,7 Gio (artefact zip `pasteque-iso` ~5,1 Go). Temps de build CI :
 
 ## Limites honnêtes (non testable ici, documentées)
 `docs/POINTS_A_VALIDER_EN_MATERIEL.md` — session Plasma réelle (GPU), Fortnite/EAC **en ligne contre les vrais serveurs Epic**, Secure Boot avec MOK enrôlé, dual-boot réel, LUKS, écran 1440p/240 Hz, manettes, perfs réelles. Aucun de ces points n'est revendiqué comme testé.
+
+---
+
+# RAPPORT FINAL — Mission prioritaire « audit et fiabilisation totale » (2026-11-26 → 27)
+
+## 1. Durée réelle de travail
+~9 h de travail effectif continu sur la mission (audit + corrections + tests locaux + suivi CI jusqu'au bout), sans arrêt tant qu'un run était en cours.
+
+## 2. Agents utilisés
+**0 sous-agent déployé** — honnêtement : le bac à sable n'a pas de clé API Mistral (`MISTRAL_API_KEY` absent), donc `agents/` (5 sous-agents prêts, testés avec un modèle scripté) n'a pas pu être lancé en production. Les 10 domaines du brief (build, sécurité, install, matériel, gaming, apps, sauvegarde, tests, UX, audit) ont été audités **manuellement**, domaine par domaine, avec preuves à chaque fois.
+
+## 3. Défauts trouvés / corrigés / restants (cette mission)
+**Trouvés : ~12, corrigés : 12, restants : 0 bloquants connus** (voir §7 pour les limites matérielles).
+
+| # | Défaut | Preuve | Correction |
+|---|--------|--------|------------|
+| 1 | `wait_sock(..., timeout=60)` → TypeError en CI (kwarg inexistant) | relecture + test de régression | `wait_sock` accepte `timeout=` + test qui scanne tous les appels |
+| 2 | `virt-fw-vars --add-db` exige `GUID FILE` (nargs=2) ; varstore par défaut = SB OFF (test vide) | source Debian 24.11 lue + run CI 45897624957 (`expected 2 arguments`) | template `OVMF_VARS_4M.ms.fd`, `--secure-boot` explicite, re-lecture du varstore exigeant `SecureBootEnable: ON` + CN en db — **validé en local avec vrais fds OVMF** |
+| 3 | Sans `-L <datadir qemu>`, QEMU meurt après avoir créé le socket serial (roms introuvables) | **reproduit en local** (rc=1, `efi-virtio.rom`) | `-L` ajouté + stderr QEMU capturé + `wait_sock` vérifie le process d'abord |
+| 4 | OVMF secboot exige `q35,smm=on` + pflash `secure=on` | docs Debian/libvirt + test local | ajouté |
+| 5 | **Shim embarqué NON SIGNÉ** (`shimx64.efi` au lieu de `shimx64.efi.signed.latest`) → firmware rejette Boot0001 sous SB (« Access Denied ») | sbverify --list : « No signature table present » ; screendump OVMF | `fetch_shim.py` préfère les variantes signées + vérifie la table de certificats PE ; `step_secureboot` vérifie aussi — validé en local (966768 o, SIGNE=True) |
+| 6 | **grub sans section `.sbat`** → shim 15.8+ rejette grubx64.efi (« No .sbat section data » → Security Violation) même bien signé | screendump shim verbose + issue WISVCH/icpc-nix#84 | `--sbat pasteque-sbat.csv` dans grub-mkimage + vérif `b".sbat"` — validé en local (shim accepte le grub signé) |
+| 7 | Test SB en `-cdrom` échoue côté firmware sous secboot (El Torito) | run CI 45914854922 (BdsDxe failed to load Boot0001) | boot en **disque raw** (partition MBR 0xEF = chemin Etcher réel) |
+| 8 | Clé SB uniquement en db → le noyau ne serait pas vérifié par grub (shim_lock) | analyse du protocole shim_lock | clé aussi en **MokList** (GUID shim), comme un vrai enrôlement MOK |
+| 9 | `\|\| true` sur commandes critiques (root, firewalld, sddm, locale-gen, services, user live, sha256 ISO, import clé GPG) | grep + relecture | rendus **fatals** (exit 1) ; os-prober bruyant non silencieux |
+| 10 | Test live `sudoers-wheel` s'auto-mutait pour passer (faux positif) ; sudoers.d absent de l'overlay | relecture du test | fichier ajouté à l'overlay (mode 440 forcé au build) + test rendu 100 % pur + test anti auto-mutation sur toute la batterie |
+| 11 | `build` masquait locale-gen, sshd non vérifié, assets visuels non vérifiés, chmod | grep `check=False`/`2>/dev/null` | fatals + vérifications explicites (sshd off, logo/fonds présents, chmod) |
+| 12 | Doc jeux en ligne « testés » (sur-revendication) ; trio anti-cheat crash sans args (IndexError) | relecture | doc corrigé (statuts = sources publiques, jamais testés serveur ici) ; setlaunch/warn durcis (usage/mode/fichier) |
+
+## 4. Fichiers modifiés (cette mission)
+`tests/sb_boot_test.py`, `tests/live_shell.py`, `tests/test_units.py`, `tools/fetch_shim.py`, `tools/build_sandbox.py`, `tools/sign_iso.sh`, `profile/airootfs/usr/local/bin/pasteque-{finalize-install,liveuser,secureboot,anticheat,anticheat-warn,anticheat-setlaunch}`, `profile/airootfs/etc/sudoers.d/010-pasteque-wheel`, `tests/live_tests.sh`, `docs/{AVANCEMENT,SPRINT_RAPPORT,JEUX_EN_LIGNE}.md`.
+
+## 5. Résultats des tests
+- **40/40 tests unitaires PASS** en local et en CI à chaque build (12 nouveaux tests de non-régression cette mission).
+- **Tests VM réels en CI** (chaque run ~1 h 40) : build rootless complet → ISO hybride `ETCHER_COMPATIBLE` → `[vm] BOOT_OK` → `USB_BOOT_OK, USB_UEFI_BOOT_OK` → batterie live **FAILS=0** (55 checks) → test Secure Boot OVMF réel.
+- **Preuve que l'échec reste visible** : runs 45897624957 / 45898299746 / 45901532241 / 45901649755 / 45914854922 ont **échoué** en CI exactement au test SB défaillant (`exit code 2`, `set -e`, aucun masquage), logs toujours uploadés (`if: always()`).
+- **Secure Boot validé de bout en bout EN LOCAL** (QEMU 10.0.13 + OVMF secboot trixie + vrais debs) : varstores SB-ON vérifiés, shim signé accepté par le firmware, grub signé+SBAT accepté par le shim, boot direct grub signé OK en positif / « Access Denied » en négatif. Le run CI `34fb850` (45950999610) valide la même chaîne avec l'ISO réelle.
+
+## 6. Fonctionnalités vérifiées (jamais à l'aveugle)
+Boot BIOS/UEFI/USB-Etcher, install disque virtuel, boot système installé, 55 checks live, signatures modules (12 982/12 982, round-trip openssl cms verify), sbverify grub/kernel, varstores OVMF, chaîne SB complète en local. **Non revendiqué** : Fortnite en ligne (jamais testé contre les vrais serveurs Epic), SB avec MOK enrôlé sur vrai PC, dual-boot/LUKS réels, GPU/écran réel — voir `docs/POINTS_A_VALIDER_EN_MATERIEL.md`.
+
+## 7. Problèmes restants (honnêtes)
+- Boot **CD** sous OVMF secboot : échec au chargement El Torito côté firmware (non résolu à la source) ; contourné par le test en disque raw. Le boot CD **sans** SB reste vert (live_shell).
+- Validation matérielle réelle (liste de 25 points) impossible en sandbox/VM.
+
+## 8. Recommandations v1.1
+1. Garder le test SB en disque raw ; investiguer le boot CD+secboot (El Torito 1 GiB) si le DVD doit être supporté sous SB.
+2. Envisager `sbctl`-style : renouveler la clé MOK à chaque build signé en CI (la clé est régénérée à chaque build — documenté dans SECURE_BOOT.md).
+3. Ajouter un test `sbverify` systématique de tous les .efi/.ko embarqués en CI (déjà fait au build : 12 982 modules relus).

@@ -138,3 +138,46 @@ Chaque cause a été reproduite/prouvée avant correction (jamais de correction 
    → à valider en CI (run e0119c5) ; si le positif atteint le login avec
    `secureboot: Secure boot enabled` et aucun `module verification failed`, et si le
    négatif (sans la clé) est bloqué, le test SB est prouvé de bout en bout.
+
+## Round correctif Secure Boot — cause racine « bad shim signature » (reproduit en local, preuve dure)
+
+Symptôme (run CI 45950999610 + boot OVMF local, screendump) : le menu GRUB s'affiche (shim→grub OK)
+puis `Booting 'Pasteque Linux (live)'` → `error: bad shim signature` → retour au menu.
+
+Cause racine (2 bugs composés, prouvés avec sbverify sur l'ISO locale) :
+1. `sb_sign.py` signait `/boot/vmlinuz-linux` — un **symlink** créé par l'étape initramfs qui tourne
+   **après** l'étape secureboot dans `all` : sur un build frais le fichier n'existe pas encore,
+   la boucle `if os.path.exists(k)` sautait **silencieusement** → aucun noyau signé.
+   `sbverify --list work/iso/boot/x86_64/vmlinuz-linux` → « No signature table present ».
+2. `step_iso` copie le noyau de l'ISO depuis `usr/lib/modules/<kver>/vmlinuz` — jamais signé.
+
+Corrections :
+- `tools/sb_sign.py` : nouvelle fonction `kernel_targets(rootfs)` (realpath + déduplication) ;
+  les noyaux sont signés **in place sur le chemin réel** `usr/lib/modules/<kver>/vmlinuz` ;
+  **exit 1 si aucun noyau trouvé** ; re-lecture stricte (table de certificats PE via `pe_signed`)
+  après chaque signature. Le glob des modules couvre désormais `usr/lib/modules/*/**/*.ko*`
+  (kernel/ + updates/ + extra/ — les .ko.zst restants provoquaient des erreurs depmod dans la cible installée).
+- `tools/build_sandbox.py` : `require_signed_iso_kernel()` — si la chaîne SB est active (shim présent),
+  le noyau embarqué dans l'ISO (et copié dans l'ESP) DOIT être signé et vérifié `sbverify --cert work/sb/sb.crt`,
+  sinon **le build échoue** (jamais de boot SB annoncé avec un composant non signé).
+- Preuve locale : `sbverify --cert work/sb/sb.crt` OK sur vmlinuz-linux **et** vmlinuz-lts extraits de l'ISO
+  et sur le noyau de l'ESP (efi.img) ; BOOTX64.EFI = shim signé Microsoft ; grubx64.efi signé clé Pastèque.
+- Marqueur honnête : `pasteque-liveuser` imprime `PASTEQUE-SECUREBOOT: <0|1>` sur /dev/console
+  (lu depuis `/sys/kernel/security/secureboot`) — les 1ers messages noyau partent avant la console série ;
+  `tests/sb_boot_test.py` attend ce marqueur (grâce 180 s) et le compte comme preuve SB active.
+- `pasteque-finalize-install` : `depmod -a` en **fatal** avant `mkinitcpio -P` (index kmod périmé
+  après renommage .ko.zst → .ko signés).
+- `docs/SECURE_BOOT.md` : procédure MOK corrigée (MokList/GUID shim, lancement direct de mmx64.efi)
+  + section « tests automatisés » qui distingue validation QEMU/OVMF réelle vs validation matérielle.
+- Tests unitaires : 42 PASS (nouveaux : chemins réels des noyaux + guard ISO + marqueur console + depmod fatal).
+- Validation locale en cours : `sb_boot_test.py` sur l'ISO rebuildée localement (noyau signé vérifié dans ISO+ESP,
+  marqueur présent dans l'airootfs.sfs) → boot OVMF secboot positif attendu jusqu'au système live avec
+  `PASTEQUE-SECUREBOOT: 1`, négatif bloqué par le shim.
+
+Mise a jour apres debug OVMF secboot reel (boot -kernel init=/bin/bash, /sys monte) :
+le fichier /sys/kernel/security/secureboot N'EXISTE PAS dans le noyau Arch 7.3.6
+(monte pourtant) -> le marqueur securityfs donnait 'unknown'. Preuve fiable :
+l'efivar EFI `SecureBoot-8be4df61-...` lu avec `od -An -tu1 -j4 -N1` -> **1** sous OVMF
+secboot avec la cle enrolee (lockdown: [none] integrity confidentiality). Le marqueur
+PASTEQUE-SECUREBOOT utilise desormais securityfs d'abord, puis l'efivar EFI en repli
+(montage efivarfs tente si besoin). Valide en local: od -> 1.

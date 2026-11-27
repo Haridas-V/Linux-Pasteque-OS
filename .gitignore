@@ -10,3 +10,4 @@ __pycache__/
 *.pyc
 tests/artifacts/
 profile/airootfs/opt/
+profile/airootfs/usr/share/backgrounds/

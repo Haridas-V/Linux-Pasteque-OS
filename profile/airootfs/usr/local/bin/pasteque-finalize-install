@@ -54,6 +54,10 @@ PRESETS=('default')
 default_image="/boot/initramfs-lts.img"
 default_kver="/boot/vmlinuz-lts"
 EOC
+# modules renommes .ko.zst -> .ko signes pendant le build (Secure Boot) : l'index kmod
+# embarque reference encore les .ko.zst -> regenerer, ECHEC FATAL (sinon modules
+# introuvables au boot de la cible et erreurs depmod en cascade)
+depmod -a || { echo "[pasteque-finalize] ERREUR depmod -a" >&2; exit 1; }
 # initramfs : ECHEC FATAL (sinon boot casse apres mise a jour noyau)
 mkinitcpio -P || { echo "[pasteque-finalize] ERREUR mkinitcpio -P" >&2; exit 1; }
 # menu GRUB avec les autres OS detectes (dual-boot) ; os-prober renvoie aussi

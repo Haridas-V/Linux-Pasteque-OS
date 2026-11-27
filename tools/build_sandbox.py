@@ -549,6 +549,28 @@ def add_efi_mbr_partition(iso_path, efi_img):
     print("[build] partition MBR 0xEF ajoutee: LBA %d, %d secteurs (512 o)" % (lba512, count512), flush=True)
 
 
+def require_signed_iso_kernel(path):
+    """INVARIANT Secure Boot : si la chaine SB est active (shim dans work/shim), le noyau
+    embarque dans l'ISO DOIT etre signe avec la cle de build (work/sb/sb.crt) — sinon grub
+    via shim_lock le rejette au boot ('error: bad shim signature', reproduit en local).
+    -> le build ECHOUE ici, jamais de boot SB annonce avec un noyau non signe."""
+    if not os.path.exists(os.path.join(WORK, "shim", "shimx64.efi")):
+        return  # pas de chaine SB (shim absent) : rien a exiger
+    sys.path.insert(0, TOOLS)
+    from fetch_shim import pe_signed
+    if not pe_signed(open(path, "rb").read()):
+        raise RuntimeError("noyau NON SIGNE embarque dans l'ISO (%s) alors que la chaine Secure Boot "
+                           "est active -> boot SB impossible (bad shim signature)" % path)
+    sbv = os.path.join(TROOT, "usr/bin/sbverify")
+    crt = os.path.join(WORK, "sb", "sb.crt")
+    if os.path.exists(sbv) and os.path.exists(crt):
+        r = run([sbv, "--cert", crt, path], check=False, capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError("signature de %s non verifiable avec work/sb/sb.crt: %s"
+                               % (path, (r.stderr or "")[-300:]))
+    print("[build] noyau ISO verifie signe:", path, flush=True)
+
+
 def step_iso():
     iso = os.path.join(WORK, "iso")
     sfs = os.path.join(iso, "arch/x86_64/airootfs.sfs")
@@ -562,6 +584,7 @@ def step_iso():
     kernel_src = os.path.join(ROOTFS, "usr/lib/modules", kv, "vmlinuz")
     assert os.path.exists(kernel_src), "noyau %s introuvable" % kv
     shutil.copy2(kernel_src, os.path.join(iso, "boot/x86_64/vmlinuz-linux"))
+    require_signed_iso_kernel(os.path.join(iso, "boot/x86_64/vmlinuz-linux"))
     initrd_src = os.path.join(ROOTFS, "boot/initramfs-linux.img")
     assert os.path.exists(initrd_src), "initramfs manquante: lancez d'abord l'étape initramfs"
     verify_initramfs(initrd_src, kv)   # coherence noyau <-> initramfs, sinon boot sans pilotes
@@ -574,6 +597,7 @@ def step_iso():
         if os.path.exists(lts_kernel) and os.path.exists(lts_initrd):
             verify_initramfs(lts_initrd, kvl)
             shutil.copy2(lts_kernel, os.path.join(iso, "boot/x86_64/vmlinuz-lts"))
+            require_signed_iso_kernel(os.path.join(iso, "boot/x86_64/vmlinuz-lts"))
             shutil.copy2(lts_initrd, os.path.join(iso, "boot/x86_64/initramfs-lts.img"))
             have_lts = True
 

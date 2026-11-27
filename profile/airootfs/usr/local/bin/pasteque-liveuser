@@ -6,3 +6,37 @@ if ! awk -F: '$3 >= 1000 && $3 < 65534 { found=1 } END { exit !found }' /etc/pas
     useradd -m -G wheel,video,audio,input,storage,optical -s /bin/bash live || { echo "[pasteque-liveuser] ERREUR: creation de l'utilisateur live" >&2; exit 1; }
 fi
 passwd -l root >/dev/null 2>&1 || { echo "[pasteque-liveuser] ERREUR: verrouillage de root" >&2; exit 1; }
+
+# Diagnostic honnete : etat REEL du Secure Boot lu depuis le firmware (1 = actif).
+# Source 1 : /sys/kernel/security/secureboot (securityfs ; le module securityfs peut
+# etre non charge -> le point de montage n'existe pas, d'ou le modprobe prealable).
+# Source 2 (repli) : l'efivar EFI SecureBoot (8be4df61-...) : 4 o d'attributs puis 01 = actif.
+# Ecrit sur /dev/console -> visible sur la console serie (console=ttyS0) ;
+# lu par tests/sb_boot_test.py (marqueur PASTEQUE-SECUREBOOT).
+sb="unknown"
+if ! modprobe securityfs 2>/dev/null; then
+    echo "[pasteque-liveuser] note: modprobe securityfs a echoue (probablement integre au noyau)" >&2
+fi
+if mount -t securityfs securityfs /sys/kernel/security 2>/dev/null || mountpoint -q /sys/kernel/security 2>/dev/null; then
+    if [ -r /sys/kernel/security/secureboot ]; then
+        sb=$(cat /sys/kernel/security/secureboot 2>/dev/null || echo unknown)
+    fi
+fi
+# le fichier securityfs 'secureboot' n'existe pas dans tous les noyaux (7.x Arch) :
+# repli sur l'efivar EFI SecureBoot, lu directement (4 o d'attributs puis 01 = actif).
+# Verifie en local sous OVMF secboot : od -j4 -N1 -> 1. efivarfs est montee par systemd
+# au boot EFI ; on tente le montage si ce n'est pas le cas.
+if [ "$sb" = "unknown" ] && [ -d /sys/firmware/efi/efivars ] && ! mountpoint -q /sys/firmware/efi/efivars 2>/dev/null; then
+    if ! mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null; then
+        echo "[pasteque-liveuser] note: montage efivarfs impossible" >&2
+    fi
+fi
+if [ "$sb" = "unknown" ] && [ -r /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c ]; then
+    sb=$(od -An -tu1 -j4 -N1 /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c 2>/dev/null | tr -d ' \n')
+    if [ -z "$sb" ]; then sb="unknown"; fi
+fi
+if echo "PASTEQUE-SECUREBOOT: $sb" > /dev/console 2>/dev/null; then
+    :
+else
+    echo "PASTEQUE-SECUREBOOT: $sb (console indisponible, marqueur aussi dans le journal)" >&2
+fi

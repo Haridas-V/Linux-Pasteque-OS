@@ -211,7 +211,18 @@ def boot_once(qemu, code_fd, vars_fd, disk, sock, timeout, extra_append=""):
             # on scanne l'historique COMPLET (ser.log), pas seulement le dernier
             # morceau, pour ne pas rater un marqueur coupe entre deux lectures
             low = ser.log.decode("utf-8", "replace").lower()
-            if "login:" in low or "reached target" in low or "multi-user" in low:
+            if "login:" in low or "reached target" in low or "multi-user" in low \
+                    or "pasteque-secureboot:" in low:
+                # attendre le marqueur Secure Boot imprime par pasteque-liveuser au boot
+                # (grace 180s : multi-user est lent sous TCG) : les 1ers messages du noyau
+                # partent avant la console serie, le marqueur /sys/kernel/security/secureboot
+                # est la preuve fiable
+                grace_end = time.time() + 180
+                while time.time() < grace_end:
+                    ser.drain(1.5)
+                    if "pasteque-secureboot:" in ser.log.decode("utf-8", "replace").lower():
+                        break
+                    time.sleep(1)
                 ser.drain(3)
                 return ser.log.decode("utf-8", "replace"), proc, "LOGIN_OK"
             if "security violation" in low or "verification failed" in low or "not signed" in low:
@@ -274,11 +285,16 @@ def main():
     log, proc, state = boot_once(qemu, code, vars_ok, disk, os.path.join(work, "pos.sock"), timeout)
     open(os.path.join(work, "serial-sb-on.log"), "w").write(log or "")
     sb_enabled = bool(log) and ("secure boot enabled" in log.lower()
-                                or "locked down from efi secure boot" in log.lower())
+                                or "locked down from efi secure boot" in log.lower()
+                                or "pasteque-secureboot: 1" in log.lower())
     mod_fail = bool(log) and ("module verification failed" in log.lower())
     login_ok = state == "LOGIN_OK"
     print("[sb] POSITIF: etat=%s login=%s secureboot_enabled=%s module_verification_failed=%s"
           % (state, login_ok, sb_enabled, mod_fail), flush=True)
+    # le log serial (tronque) est imprime dans le log CI pour diagnostic direct
+    if log:
+        print("[sb] serial-sb-on TETE:\n" + log[:1500], flush=True)
+        print("[sb] serial-sb-on QUEUE:\n" + log[-2500:], flush=True)
     pos_ok = login_ok and sb_enabled and not mod_fail
 
     # --- controle NEGATIF : SB on, cle ABSENTE -> boot bloque par le shim ---
@@ -286,6 +302,14 @@ def main():
     open(os.path.join(work, "serial-sb-off.log"), "w").write(log2 or "")
     blocked = state2 in ("BLOCKED", "TIMEOUT") and "login:" not in (log2 or "").lower()
     print("[sb] NEGATIF (sans la cle): etat=%s bloque=%s" % (state2, blocked), flush=True)
+    if log2:
+        print("[sb] serial-sb-off QUEUE:\n" + log2[-1200:], flush=True)
+
+    # le disque raw (5,8 Go) ne doit PAS polluer l'artifact test-logs
+    try:
+        os.remove(disk)
+    except OSError:
+        pass
 
     print("[sb] RESULT: SB_POSITIVE_%s SB_NEGATIVE_%s"
           % ("OK" if pos_ok else "FAIL", "OK" if blocked else "FAIL"), flush=True)

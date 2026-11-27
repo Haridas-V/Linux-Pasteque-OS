@@ -47,9 +47,18 @@ enrôlée dans le MOK de chaque PC.
 ### Méthode alternative (un seul boot, clé USB FAT)
 
 1. Copier `Pasteque.der` à la racine d'une **petite clé USB formatée en FAT**.
-2. Boot avec **Secure Boot = ON** : le shim bloque `grubx64.efi` (non signé par `db`)
-   et affiche « Security Violation » ; appuyez sur une touche pour entrer le **MokManager**.
-3. `Enroll MOK` → `View key` / choisissez le fichier `Pasteque.der` sur la clé USB → `Continue` → `Yes` → `Reboot`.
+2. Boot avec **Secure Boot = ON**. Deux possibilités :
+   - le shim bloque `grubx64.efi` (non signé par `db`) et affiche « Security Violation » ;
+     selon la version du shim, une touche permet d'ouvrir le **MokManager** ;
+   - ou lancer directement le MokManager embarqué sur la clé Pastèque :
+     menu de boot du firmware → lancez `\EFI\BOOT\mmx64.efi`
+     (MokManager signé Microsoft, embarqué dans l'ESP de l'ISO).
+3. Dans le MokManager : `Enroll MOK` → `Enroll key from file` (ou `View key` selon version)
+   → choisissez `Pasteque.der` sur la clé USB FAT → `Continue` → `Yes` → `Reboot`.
+
+> Note : la clé est enrôlée dans **MokList** (GUID du shim), pas dans `db` — c'est le
+> mécanisme standard MOK, et c'est aussi ce que fait le test automatisé ci-dessous
+> (`--add-mok` avec le GUID shim `605dab50-e046-4300-abb6-3dd810dd8b23`).
 
 ### Points importants
 
@@ -79,4 +88,28 @@ Secure Boot OFF → tout boot (shim laisse passer, signatures ignorées).
 - Chaque machine doit enrôler la clé MOK une fois (standard MOK).
 - Si vous rebuildz l'ISO avec une **nouvelle** clé SB (`work/sb/` supprimé ou `SB_KEY`/`SB_CRT` changés),
   il faut ré-enrôler la nouvelle clé.
-- Le noyau LTS de secours est signé lui aussi (même clé).
+- Le noyau LTS de secours est signé lui aussi (même clé), embarqué dans l'ISO et dans l'ESP.
+
+## Tests automatisés (vraiment exécutés, pas simulés)
+
+`tests/sb_boot_test.py` (lancé par le workflow CI après le build de l'ISO) :
+
+1. construit deux varstores OVMF réels avec `virt-fw-vars` et les **re-lit** pour prouver
+   `SecureBoot=1` : un avec la clé Pastèque dans `db` **et** `MokList` (positif),
+   un avec seulement les clés Microsoft (négatif) ;
+2. écrit l'ISO en bloc sur un disque virtio (comme `dd`/Etcher sur clé USB — la partition
+   MBR `0xEF` contient l'ESP) ;
+3. boot **OVMF secboot réel** (`q35,smm=on`, pflash `secure=on`) :
+   - **positif** : le boot doit aller jusqu'au système live, avec le marqueur
+     `PASTEQUE-SECUREBOOT: 1` (lu depuis `/sys/kernel/security/secureboot`, écrit sur la
+     console par `pasteque-liveuser`) et **aucun** `module verification failed` ;
+   - **négatif** : sans la clé, le shim doit bloquer le boot (aucun login atteint).
+4. le build lui-même échoue désormais si un composant de la chaîne SB n'est pas signé
+   (`require_signed_iso_kernel` dans `tools/build_sandbox.py`, `sbverify --cert` sur les
+   noyaux embarqués ISO + ESP).
+
+Ce test tourne sous **QEMU TCG avec le vrai firmware OVMF** : c'est une validation réelle de
+la chaîne de signatures, mais **pas** une validation matérielle. Sur un vrai PC, refaire :
+`mokutil --sb-state` (doit dire `enabled`), boot avec la clé enrôlée, et
+`dmesg | grep -i "secure boot\|module verification"` — voir
+`docs/POINTS_A_VALIDER_EN_MATERIEL.md`.

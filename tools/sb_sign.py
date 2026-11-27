@@ -131,19 +131,54 @@ def sbsign(src, dst, key, crt):
     print("[sb] signe + verifie:", os.path.basename(dst), flush=True)
 
 
+def kernel_targets(rootfs):
+    """Chemins REELS (realpath, dedupliques, tries) des noyaux a signer dans la rootfs.
+
+    /boot/vmlinuz-linux est un SYMLINK vers usr/lib/modules/<kver>/vmlinuz (cree par
+    l'etape initramfs, qui tourne APRES l'etape secureboot dans 'all') : a l'etape
+    secureboot ce fichier n'existe peut-etre pas encore, et os.replace(tmp, lien)
+    remplacerait le LIEN sans signer la cible. Et step_iso copie le noyau de l'ISO
+    depuis usr/lib/modules/<kver>/vmlinuz. -> on signe toujours la CIBLE reelle."""
+    seen, out = set(), []
+    cands = glob.glob(os.path.join(rootfs, "usr/lib/modules", "*", "vmlinuz")) + \
+            glob.glob(os.path.join(rootfs, "boot", "vmlinuz-*"))
+    for c in sorted(cands):
+        real = os.path.realpath(c)
+        if real in seen or not os.path.isfile(real):
+            continue
+        seen.add(real)
+        out.append(real)
+    return out
+
+
 def sign_efi_and_kernels(key, crt):
     # grub EFI (sera renomme grubx64.efi, charge par le shim) — present seulement
     # apres step_iso (efiwork) ; sinon signe en --efi-only a ce moment-la.
     grub_src = os.path.join(WORK, "efiwork", "EFI/BOOT/BOOTX64.EFI")
     if os.path.exists(grub_src):
         sbsign(grub_src, os.path.join(WORK, "efiwork", "EFI/BOOT/grubx64.efi"), key, crt)
-    # noyaux (EFI stub) signes sur place dans la rootfs
-    for kv in ("/boot/vmlinuz-linux", "/boot/vmlinuz-lts"):
-        k = os.path.join(ROOTFS, kv)
-        if os.path.exists(k):
-            tmp = k + ".signed"
-            sbsign(k, tmp, key, crt)
-            os.replace(tmp, k)
+    # noyaux (EFI stub) signes IN PLACE sur leur chemin REEL — jamais via un symlink
+    # (regression reproduite en local : noyau de l'ISO non signe, sbverify 'No signature
+    # table present', boot SB 'error: bad shim signature'). STRICT : aucun noyau trouve
+    # = build STOPPE (jamais de "succes" annonce sans noyau signe).
+    kernels = kernel_targets(ROOTFS)
+    if not kernels:
+        print("[sb] ERREUR: aucun noyau dans %s (usr/lib/modules/*/vmlinuz) -> "
+              "boot Secure Boot impossible, build STOPPE" % ROOTFS, file=sys.stderr, flush=True)
+        sys.exit(1)
+    for k in kernels:
+        tmp = k + ".signed"
+        sbsign(k, tmp, key, crt)   # sbsign() verifie deja la signature avec sbverify --cert
+        os.replace(tmp, k)         # signe la cible reelle ; les symlinks /boot/vmlinuz-* restent valides
+    # relecture stricte : chaque noyau signe doit avoir une table de certificats PE non vide
+    sys.path.insert(0, HERE)
+    from fetch_shim import pe_signed
+    for k in kernels:
+        if not pe_signed(open(k, "rb").read()):
+            print("[sb] ERREUR: %s sans table de certificats PE apres sbsign -> build STOPPE" % k,
+                  file=sys.stderr, flush=True)
+            sys.exit(1)
+        print("[sb] noyau signe + verifie (cert PE present):", k, flush=True)
 
 
 def strip_appended_sig(raw):
@@ -232,7 +267,9 @@ def _decompress_bytes(data, suffix):
 
 
 def sign_all_modules(key, crt, hash_algo):
-    mods = sorted(glob.glob(os.path.join(ROOTFS, "usr/lib/modules/*/kernel/**/*.ko*"), recursive=True))
+    # TOUS les modules du noyau (kernel/**, updates/**, extra/**) : un .ko.zst restant
+    # dans updates/ ou extra/ provoquerait des erreurs depmod dans le systeme installe
+    mods = sorted(glob.glob(os.path.join(ROOTFS, "usr/lib/modules/*/**/*.ko*"), recursive=True))
     print("[sb] signature de %d modules (hash=%s, decompression en .ko signe)..." % (len(mods), hash_algo), flush=True)
     n = failed = 0
     final = []
