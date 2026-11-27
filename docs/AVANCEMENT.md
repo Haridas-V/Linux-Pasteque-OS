@@ -181,3 +181,21 @@ l'efivar EFI `SecureBoot-8be4df61-...` lu avec `od -An -tu1 -j4 -N1` -> **1** so
 secboot avec la cle enrolee (lockdown: [none] integrity confidentiality). Le marqueur
 PASTEQUE-SECUREBOOT utilise desormais securityfs d'abord, puis l'efivar EFI en repli
 (montage efivarfs tente si besoin). Valide en local: od -> 1.
+
+## Résultats de validation locale (après corrections, ISO rebuildée en local 4750 MiB)
+
+- `sbverify --cert work/sb/sb.crt` OK sur vmlinuz-linux ET vmlinuz-lts extraits de l'ISO,
+  et sur le noyau embarqué dans l'ESP (efi.img) ; BOOTX64.EFI = shim signé Microsoft ;
+  grubx64.efi = signé clé Pastèque. Le garde `require_signed_iso_kernel` a tourné au build.
+- `tests/sb_boot_test.py` en local (QEMU TCG + OVMF secboot réel, varstores vérifiés SB-on) :
+  **`RESULT: SB_POSITIVE_OK SB_NEGATIVE_OK`** — positif : boot jusqu'au système live
+  (LOGIN_OK) avec `PASTEQUE-SECUREBOOT: 1` sur la console série et AUCUN
+  `module verification failed` ; négatif (clé absente) : boot bloqué par le shim.
+- Preuve noyau du marqueur (boot -kernel init=/bin/bash sous OVMF secboot, /sys monté) :
+  efivar `SecureBoot-8be4df61-...` lu via `od -An -tu1 -j4 -N1` -> **1** ;
+  `/sys/kernel/security/secureboot` n'existe pas dans le noyau Arch 7.3.6 (d'où le repli efivar) ;
+  lockdown = `[none] integrity confidentiality`.
+- 43 tests unitaires PASS en local (nouveau : `fetch_url_retry` fonctionnel avec serveur
+  HTTP local — succès après 2×503, échec franc si indisponible).
+- Run CI 45995052877 : échec **transitoire** (HTTP 503 codeberg au fetch du tarball
+  Calamares, étape AUR) -> corrigé par `fetch_url_retry` (commit e1b9692). Run suivant : 46000041335.
