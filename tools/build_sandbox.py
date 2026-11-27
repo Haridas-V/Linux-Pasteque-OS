@@ -645,11 +645,23 @@ def step_iso():
     early = os.path.join(efiwork, "early.cfg")
     with open(early, "w") as f:
         f.write("search --set=root --file /boot/grub/grub.cfg\nset prefix=($root)/boot/grub\n")
+    # SBAT OBLIGATOIRE : shim 15.8+ REJETTE un grubx64.efi sans section .sbat
+    # (verifie en local : "No .sbat section data" -> Security Violation)
+    sbat_csv = os.path.join(WORK, "sbat.csv")
+    with open(sbat_csv, "w") as f:
+        f.write("sbat,1,SBAT Version,sbat,1,https://github.com/rhboot/shim/blob/main/SBAT.md\n"
+                "grub,5,Free Software Foundation,grub,2.12,https://www.gnu.org/software/grub/\n"
+                "grub.pasteque,1,Pasteque Linux,grub,2.12,https://github.com/Haridas-V/Linux-Pasteque-OS\n")
     run([os.path.join(TROOT, "usr/bin/grub-mkimage"), "-O", "x86_64-efi",
          "-d", os.path.join(TROOT, "usr/lib/grub/x86_64-efi"),
          "-o", os.path.join(efiwork, "EFI/BOOT/BOOTX64.EFI"),
          "-c", early,
+         "--sbat", sbat_csv,
          "-p", "(cd0)/boot/grub"] + modules)
+    # le grub produit DOIT contenir une section .sbat, sinon shim le rejette sous SB
+    _grub = open(os.path.join(efiwork, "EFI/BOOT/BOOTX64.EFI"), "rb").read()
+    if b".sbat" not in _grub:
+        raise RuntimeError("grubx64.efi sans section .sbat -> shim 15.8+ le rejetterait sous Secure Boot")
     # signe le grub EFI (l'etape secureboot a pu tourner avant la creation d'efiwork)
     if os.path.exists(os.path.join(WORK, "sb", "sb.key")):
         run([sys.executable, os.path.join(TOOLS, "sb_sign.py"), "--efi-only"], check=True)
@@ -727,6 +739,12 @@ def step_secureboot():
     r = run([sys.executable, os.path.join(TOOLS, "fetch_shim.py")], check=False)
     if r.returncode != 0 or not os.path.exists(os.path.join(WORK, "shim", "shimx64.efi")):
         raise RuntimeError("shim Microsoft (shim-signed) introuvable -> impossible de produire une ISO Secure Boot")
+    # VERIF : le shim DOIT etre signe (table de certificats PE non vide), sinon le
+    # firmware le rejette sous Secure Boot (Access Denied au chargement de Boot0001)
+    sys.path.insert(0, TOOLS)
+    from fetch_shim import pe_signed
+    if not pe_signed(open(os.path.join(WORK, "shim", "shimx64.efi"), "rb").read()):
+        raise RuntimeError("shimx64.efi NON SIGNE (mauvaise variante du paquet) -> rejete sous Secure Boot")
     if not os.path.exists(os.path.join(WORK, "shim", "mmx64.efi")):
         raise RuntimeError("MokManager (mmx64.efi) introuvable avec le shim")
     run([sys.executable, os.path.join(TOOLS, "sb_sign.py")], check=True)   # exit 1 si signature incomplete

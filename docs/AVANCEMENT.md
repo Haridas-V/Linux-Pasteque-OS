@@ -109,3 +109,32 @@ dans le rapport final) :
 - **Tests unitaires : 39/39 PASS** (nouveaux tests de non-régression inclus).
 - CI : runs en cours à chaque push (workflow strict `set -e`, 4 suites obligatoires :
   vm, usb, live, **sb_boot_test OVMF réel positif+négatif**). Résultats dans le rapport final.
+
+## Saga test Secure Boot réel (OVMF secboot) — diagnostic étape par étape
+
+Chaque cause a été reproduite/prouvée avant correction (jamais de correction à l'aveugle) :
+
+1. `wait_sock(..., timeout=60)` appelé avec un kwarg inexistant → TypeError.
+   Corrigé (`timeout=` accepté) + test de non-régression sur tous les appels.
+2. `virt-fw-vars --add-db` exige **GUID FILE** (nargs=2, source Debian 24.11 lue) et
+   le varstore par défaut (`OVMF_VARS_4M.fd`) est **SB OFF / setup mode** → test vide.
+   Corrigé : template `OVMF_VARS_4M.ms.fd` (clés MS + SB on), `--secure-boot` explicite,
+   `--add-db <GUID db> <der>`, repli `--enroll-redhat` sur varstore vierge, et
+   **re-lecture du varstore** (`--print --verbose`) qui exige `SecureBootEnable: ON`
+   (et la présence du CN `Pasteque Linux Secure Boot` dans db pour le positif).
+   Validé EN LOCAL avec les vrais fds OVMF (dépot deb ovmf trixie) + virt-fw-vars :
+   positif OK, négatif OK (clé absente), repli OK, anti-vacuité OK (varstore sans SB refusé).
+3. Sans `-L <datadir qemu>`, QEMU crée le socket serial puis **meurt** (rc=1,
+   roms `kvmvapic.bin`/`efi-virtio.rom` introuvables — reproduit en local, le conteneur
+   CI n'a pas /usr/share/qemu) → `RuntimeError: socket indisponible`. Corrigé : `-L`
+   + capture du stderr QEMU dans un fichier + `wait_sock` vérifie le process d'abord.
+4. OVMF secboot exige `-machine q35,smm=on` + pflash `secure=on` (docs Debian/libvirt) — ajouté.
+5. Boot CD (`-cdrom`) sous OVMF **secboot** : `BdsDxe: failed to load Boot0001 "UEFI QEMU
+   DVD-ROM..." : ...` côté firmware, alors que le même ISO boote en CD avec SB OFF
+   (batterie live verte) et en disque raw (usb_boot_test vert). Non résolu à la source
+   (probablement lié à l'image El Torito 1 GiB sous vérification SB) → le test SB boote
+   désormais l'ISO en **disque raw** (partition MBR 0xEF, exactement ce qu'Etcher écrit
+   sur une clé USB). Le boot CD reste couvert sans SB par `tests/live_shell.py`.
+   → à valider en CI (run e0119c5) ; si le positif atteint le login avec
+   `secureboot: Secure boot enabled` et aucun `module verification failed`, et si le
+   négatif (sans la clé) est bloqué, le test SB est prouvé de bout en bout.

@@ -523,6 +523,7 @@ def test_sb_boot_test_real():
     assert "OVMF_VARS_4M.ms.fd" in src, "template MS requis (le shim signe MS doit verifier contre db)"
     assert "verify_sb_on" in src, "le varstore doit etre re-lu pour exiger SecureBoot=ON (anti varstore vide)"
     assert '"--add-db", DB_GUID, der' in src, "virt-fw-vars 24.x exige --add-db GUID FILE (nargs=2)"
+    assert '"--add-mok", SHIM_GUID, der' in src, "cle Pastèque aussi dans MokList (shim -> grub -> noyau via shim_lock)"
     assert "enroll-redhat" in src, "repli varstore vierge: cles MS enroulees automatiquement"
     # regression reproduite en local : sans -L, qemu meurt apres avoir cree le socket
     # serial (roms introuvables) -> RuntimeError socket indisponible en CI
@@ -619,6 +620,36 @@ def test_sudoers_overlay_and_pure_live_tests():
             "test live auto-mutant (faux positif): %s" % m.group(1)
 
 
+def test_shim_signed_and_grub_sbat():
+    """Regressions reproduites en local avec de vrais binaires :
+    - le paquet shim-signed contient shimx64.efi NON SIGNE et shimx64.efi.signed.latest
+      SIGNE : il faut choisir la variante signée et verifier la table de certificats PE
+      (sinon le firmware rejette Boot0001 sous SB : 'Access Denied').
+    - grub-mkimage doit embarquer --sbat : shim 15.8+ rejette un grub sans .sbat
+      ('No .sbat section data' -> Security Violation), meme correctement signe."""
+    import importlib.util
+    fs = open(os.path.join(REPO, "tools/fetch_shim.py"), encoding="utf-8").read()
+    assert "def pe_signed" in fs and "shimx64.efi.signed.latest" in fs, "fetch_shim doit preferer la variante .signed.latest"
+    assert "pe_signed(cand[key][pref])" in fs, "fetch_shim doit verifier la signature PE"
+    bs = open(os.path.join(REPO, "tools/build_sandbox.py"), encoding="utf-8").read()
+    assert '"--sbat", sbat_csv' in bs, "grub-mkimage doit recevoir --sbat (sinon shim rejette le grub)"
+    assert 'b".sbat" not in _grub' in bs, "build doit verifier la presence de .sbat dans le grub"
+    assert "pe_signed" in bs and "NON SIGNE" in bs, "step_secureboot doit verifier que le shim est signe"
+    # test fonctionnel de pe_signed sur un faux PE
+    spec = importlib.util.spec_from_file_location("fetch_shim", os.path.join(REPO, "tools/fetch_shim.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    fake = bytearray(0x200)
+    fake[0x3C:0x40] = (0x80).to_bytes(4, "little")
+    fake[0x80:0x84] = b"PE\0\0"
+    fake[0x80 + 24:0x80 + 26] = (0x20B).to_bytes(2, "little")  # PE32+
+    assert not m.pe_signed(bytes(fake)), "PE sans cert table doit etre detecte non signe"
+    ddoff = 0x80 + 24 + 112
+    fake2 = bytearray(fake)
+    fake2[ddoff + 4 * 8 + 4:ddoff + 4 * 8 + 8] = (1234).to_bytes(4, "little")
+    assert m.pe_signed(bytes(fake2)), "PE avec cert table doit etre detecte signe"
+
+
 def test_wait_sock_call_sites_compat():
     """Regression : sb_boot_test appelait wait_sock(..., timeout=60) alors que la
     signature n'avait que tries= -> TypeError en CI. Verifie que CHAQUE appel
@@ -681,6 +712,7 @@ if __name__ == "__main__":
     t("aucun || true sur commandes critiques (finalize/liveuser/sign_iso)", test_no_masked_critical_commands)
     t("build strict : assets visuels verifies, locale-gen fatal, sshd off verifie, chmod fatal", test_build_strict_assets_and_ssh)
     t("sudoers wheel dans l'overlay + tests live 100% purs (pas d'auto-mutation)", test_sudoers_overlay_and_pure_live_tests)
+    t("shim signe (variante .signed.latest + pe_signed) + grub-mkimage --sbat (anti rejet shim)", test_shim_signed_and_grub_sbat)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

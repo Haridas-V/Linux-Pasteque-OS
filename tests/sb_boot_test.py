@@ -58,6 +58,10 @@ def find_qemu():
 
 # GUID de la variable db (EFI_IMAGE_SECURITY_DATABASE) — owner requis par virt-fw-vars
 DB_GUID = "d719b2cb-3d3a-4596-a3bc-dad00e67656f"
+# GUID du shim pour MokList — c'est la voie REELLE d'enrôlement MOK : shim lit
+# MokList, verifie grubx64.efi avec, et transmet la cle a grub via shim_lock
+# (grub verifie alors le noyau avec). db seul ne suffit pas pour le noyau.
+SHIM_GUID = "605dab50-e046-4300-abb6-3dd810dd8b23"
 
 
 def find_ovmf():
@@ -114,7 +118,8 @@ def build_vars(vars_base, out_path, der=None, enroll_ms=False):
     if enroll_ms:
         argv.append("--enroll-redhat")  # ajoute PK/KEK + cles MS (db) au varstore vierge
     if der:
-        argv += ["--add-db", DB_GUID, der]
+        # cle Pastèque dans db (firmware) ET dans MokList (shim -> grub -> noyau)
+        argv += ["--add-db", DB_GUID, der, "--add-mok", SHIM_GUID, der]
     if run_fw(fw, argv).returncode != 0:
         return None
     return out_path

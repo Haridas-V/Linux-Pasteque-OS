@@ -71,6 +71,29 @@ def decompress(data):
     return data
 
 
+def pe_signed(blob):
+    """True si le PE/COFF a une table de certificats non vide (signature embarquee).
+    Un shim NON signe est rejete par le firmware sous Secure Boot (Access Denied)."""
+    try:
+        peoff = int.from_bytes(blob[0x3C:0x40], "little")
+        opt = peoff + 24
+        magic = int.from_bytes(blob[opt:opt + 2], "little")  # 0x20b = PE32+
+        ddoff = opt + (112 if magic == 0x20b else 96)
+        cert_size = int.from_bytes(blob[ddoff + 4 * 8 + 4:ddoff + 4 * 8 + 8], "little")
+        return cert_size > 0
+    except Exception:
+        return False
+
+
+# variantes du paquet shim-signed, de la plus preferee a la moins :
+# shimx64.efi (non signe) existe AUSSI dans le paquet et ne doit JAMAIS etre choisi
+PREF = {
+    "shimx64.efi": ["shimx64.efi.signed.latest", "shimx64.efi.dualsigned",
+                    "shimx64.efi.signed", "shimx64.efi"],
+    "mmx64.efi":   ["mmx64.efi.signed.latest", "mmx64.efi.signed", "mmx64.efi"],
+}
+
+
 def main():
     dest_dir = os.path.join(REPO, "work", "shim")
     os.makedirs(dest_dir, exist_ok=True)
@@ -97,18 +120,24 @@ def main():
         if data is None:
             raise RuntimeError("data.tar.* introuvable dans le .deb")
         tf = tarfile.open(fileobj=io.BytesIO(decompress(data)), mode="r|*")
-        got = {}
+        cand = {k: {} for k in PREF}
         for m in tf:
             base = os.path.basename(m.name)
-            if base in ("shimx64.efi.signed", "shimx64.efi"):
-                got["shimx64.efi"] = tf.extractfile(m).read()
-            elif base in ("mmx64.efi.signed", "mmx64.efi"):
-                got["mmx64.efi"] = tf.extractfile(m).read()
-        if "shimx64.efi" not in got:
-            raise RuntimeError("shimx64.efi.signed absent du paquet")
+            for key in PREF:
+                if base in PREF[key]:
+                    cand[key][base] = tf.extractfile(m).read()
+        got = {}
+        for key, prefs in PREF.items():
+            for pref in prefs:
+                if pref in cand[key] and pe_signed(cand[key][pref]):
+                    got[key] = cand[key][pref]
+                    break
+            if key not in got:
+                raise RuntimeError("%s: aucune variante SIGNEE trouvee dans shim-signed "
+                                   "(un shim non signe est rejete sous Secure Boot)" % key)
         for name, blob in got.items():
             open(os.path.join(dest_dir, name), "wb").write(blob)
-    print("[shim] OK ->", dest_dir, flush=True)
+    print("[shim] OK (variantes signees verifiees) ->", dest_dir, flush=True)
 
 
 if __name__ == "__main__":
