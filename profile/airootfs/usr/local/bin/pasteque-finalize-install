@@ -87,6 +87,9 @@ mkinitcpio -P || { echo "[pasteque-finalize] ERREUR mkinitcpio -P" >&2; exit 1; 
 if ! os-prober > /tmp/pasteque-osprober.log 2>&1; then
     echo "[pasteque-finalize] os-prober: aucun autre OS ou erreur (log: /tmp/pasteque-osprober.log)" >&2
 fi
+# /boot/grub n'existe pas dans la cible copiee (le squashfs exclut /boot) :
+# grub-mkconfig ecrirait /boot/grub/grub.cfg.new -> "No such file or directory"
+mkdir -p /boot/grub || { echo "[pasteque-finalize] ERREUR: mkdir /boot/grub" >&2; exit 1; }
 grub-mkconfig -o /boot/grub/grub.cfg || { echo "[pasteque-finalize] ERREUR grub-mkconfig" >&2; exit 1; }
 # installer les extras pour l'utilisateur créé
 /usr/bin/python3 /usr/local/bin/pasteque-install-extras || { echo '[pasteque-finalize] ERREUR install-extras (applis offline manquantes)' >&2; exit 1; }

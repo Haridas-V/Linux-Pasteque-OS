@@ -502,7 +502,8 @@ printf 'set timeout=1\\nserial --speed=115200\\nterminal_output console serial\\
     n_err = out.count("[pasteque-finalize] ERREUR")
     rep.check("install-finalize-sans-erreur", n_err == 0,
               "%d '[pasteque-finalize] ERREUR' dans install-finalize.txt" % n_err if n_err else "")
-    out2, rc2 = ser.run("ls -la /boot/vmlinuz-linux /boot/vmlinuz-lts /boot/initramfs-linux.img /boot/initramfs-lts.img 2>&1", timeout=60)
+    # /boot de la CIBLE installee (pas celui de la live, vide car exclu du squashfs)
+    out2, rc2 = ser.run("ls -la /newroot/mnt/target/boot/vmlinuz-linux /newroot/mnt/target/boot/vmlinuz-lts /newroot/mnt/target/boot/initramfs-linux.img /newroot/mnt/target/boot/initramfs-lts.img 2>&1", timeout=60)
     rep.check("install-boot-noyaux-et-initramfs-presents",
               rc2 == 0 and "initramfs-lts.img" in out2 and "vmlinuz-lts" in out2,
               out2[-300:])

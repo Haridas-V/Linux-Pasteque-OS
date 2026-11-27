@@ -572,6 +572,8 @@ def test_no_masked_critical_commands():
     assert "/boot/vmlinuz-linux" in fin and "ln -sfn" in fin and "/usr/lib/modules" in fin, \
         "finalize-install doit recreer /boot/vmlinuz-linux et /boot/vmlinuz-lts dans la cible (/boot exclu du squashfs)"
     assert "non recree" in fin, "finalize-install doit echouer si le noyau n'est pas recreable"
+    assert "mkdir -p /boot/grub" in fin, \
+        "finalize-install doit creer /boot/grub (sinon grub-mkconfig: grub.cfg.new No such file or directory)"
     for bad in ("passwd -l root || true",
                 "systemctl enable firewalld 2>/dev/null || true",
                 "systemctl enable sddm 2>/dev/null || true",
