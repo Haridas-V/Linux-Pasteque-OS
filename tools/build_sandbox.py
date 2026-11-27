@@ -141,6 +141,33 @@ def run(cmd, **kw):
     return subprocess.run(cmd, env=env, **kw)
 
 
+def fetch_url_retry(url, dest, tries=5, base=10):
+    """Telecharge url -> dest avec retry + backoff exponentiel sur les erreurs
+    transitoires (5xx type 503 codeberg, timeouts, rate limit) — vu en CI run
+    45995052877. Ecrit dans dest.part puis rename atomique : jamais de fichier
+    partiel. Echoue (RuntimeError) si tous les essais echouent."""
+    import time
+    import urllib.request
+    last = None
+    for i in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "pasteque-build/1.0"})
+            tmp = dest + ".part"
+            with urllib.request.urlopen(req, timeout=300) as r, open(tmp, "wb") as f:
+                shutil.copyfileobj(r, f)
+            os.replace(tmp, dest)
+            return
+        except Exception as e:
+            last = e
+            code = getattr(e, "code", None)
+            print("[build] fetch %s : essai %d/%d echoue (HTTP %s: %s)" % (url, i + 1, tries, code, e), flush=True)
+            if os.path.exists(dest + ".part"):
+                os.remove(dest + ".part")
+            if i + 1 < tries:
+                time.sleep(base * (2 ** i))
+    raise RuntimeError("telechargement impossible apres %d essais: %s (%s)" % (tries, url, last))
+
+
 def chroot(cmd, **kw):
     return run([os.path.join(TOOLS, "chroot.sh"), ROOTFS] + cmd, **kw)
 
@@ -400,9 +427,7 @@ def step_aur():
         tarball = os.path.join(build, os.path.basename(spec["src"]))
         if not os.path.exists(tarball):
             print("[aur] download", spec["src"], flush=True)
-            req = urllib.request.Request(spec["src"], headers={"User-Agent": "pasteque-build/1.0"})
-            with urllib.request.urlopen(req, timeout=300) as r, open(tarball, "wb") as f:
-                shutil.copyfileobj(r, f)
+            fetch_url_retry(spec["src"], tarball)   # retry/backoff : 503 transitoires vus en CI
         # deps de build
         chroot(["/usr/bin/pacman", "--config", "/etc/pacman.conf.build", "-S",
                 "--noconfirm", "--needed", "--overwrite", "*", "--asdeps"] + spec["build_deps"])

@@ -710,6 +710,68 @@ def test_sb_console_marker():
     assert "pasteque-secureboot:" in st.split("sb_enabled")[0], "boot_once doit attendre le marqueur (grace)"
 
 
+def test_fetch_url_retry():
+    """step_aur doit telecharger via fetch_url_retry (run CI 45995052877: HTTP 503
+    codeberg au fetch du tarball Calamares, sans retry). Test fonctionnel reel avec
+    serveur HTTP local : succes apres 503 transitoires, et RuntimeError franche si
+    le serveur reste indisponible (jamais de fichier partiel annonce OK)."""
+    import importlib.util
+    import threading
+    import http.server
+    import socketserver
+    import tempfile
+    spec = importlib.util.spec_from_file_location("bs_mod", os.path.join(REPO, "tools/build_sandbox.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    payload = b"pasteque-test-payload" * 100
+
+    class H(http.server.BaseHTTPRequestHandler):
+        hits = {"n": 0}
+        fail_first = {"n": 2}   # 2 premieres reponses = 503
+        def do_GET(self):
+            H.hits["n"] += 1
+            if H.hits["n"] <= H.fail_first["n"]:
+                self.send_response(503)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+        def log_message(self, *a):
+            pass
+
+    srv = socketserver.TCPServer(("127.0.0.1", 0), H)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            dest = os.path.join(d, "f.bin")
+            m.fetch_url_retry("http://127.0.0.1:%d/f" % port, dest, tries=5, base=0)
+            assert open(dest, "rb").read() == payload, "contenu telecharge incorrect"
+            assert H.hits["n"] == 3, "le retry apres 503 a du servir (hits=%d)" % H.hits["n"]
+            assert not os.path.exists(dest + ".part"), "fichier partiel restant apres succes"
+            # serveur indisponible -> RuntimeError franche, pas de fichier
+            srv.shutdown()
+            srv.server_close()
+            dest2 = os.path.join(d, "g.bin")
+            try:
+                m.fetch_url_retry("http://127.0.0.1:%d/g" % port, dest2, tries=2, base=0)
+                raise AssertionError("fetch_url_retry aurait du echouer franchement")
+            except RuntimeError:
+                pass
+            assert not os.path.exists(dest2) and not os.path.exists(dest2 + ".part"), \
+                "aucun fichier (meme .part) ne doit rester apres echec total"
+    finally:
+        try:
+            srv.server_close()
+        except Exception:
+            pass
+    bs = open(os.path.join(REPO, "tools/build_sandbox.py"), encoding="utf-8").read()
+    assert "fetch_url_retry(spec[\"src\"], tarball)" in bs, "step_aur doit utiliser fetch_url_retry"
+
+
 def test_wait_sock_call_sites_compat():
     """Regression : sb_boot_test appelait wait_sock(..., timeout=60) alors que la
     signature n'avait que tries= -> TypeError en CI. Verifie que CHAQUE appel
@@ -775,6 +837,7 @@ if __name__ == "__main__":
     t("shim signe (variante .signed.latest + pe_signed) + grub-mkimage --sbat (anti rejet shim)", test_shim_signed_and_grub_sbat)
     t("noyaux signes sur le chemin REEL (anti-symlink) + guard ISO : noyau non signe = build fail", test_kernel_signed_real_path_and_iso_guard)
     t("marqueur console PASTEQUE-SECUREBOOT (securityfs) lu par sb_boot_test", test_sb_console_marker)
+    t("fetch_url_retry : retry 503 + echec franc (test fonctionnel serveur HTTP local)", test_fetch_url_retry)
     print()
     if FAIL:
         print("ECHECS:", FAIL)
