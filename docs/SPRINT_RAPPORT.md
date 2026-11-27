@@ -127,3 +127,14 @@ Boot BIOS/UEFI/USB-Etcher, install disque virtuel, boot système installé, 55 c
 ## Non revendiqué (honnête)
 - Boot CD sous OVMF **secboot** (El Torito) : non résolu côté firmware ; le test SB boot en disque raw (chemin Etcher réel). Boot CD sans SB : vert.
 - Validation matérielle réelle (MOK enrôlé sur PC, Fortnite contre les vrais serveurs Epic, dual-boot/LUKS réels, GPU/écran réels) : impossible ici → `docs/POINTS_A_VALIDER_EN_MATERIEL.md`.
+
+## Mise à jour finale — run CI 46034672263 (7931d28) : SUCCESS ✅
+Toutes les vérifications passent, y compris les 2 nouveaux checks stricts d'install :
+`install-finalize-sans-erreur` PASS (0 erreur finalize — `mkdir -p /boot/grub` ajouté car `/boot`
+est exclu du squashfs, sinon `grub-mkconfig` échoue avec « grub.cfg.new: No such file or directory »)
+et `install-boot-noyaux-et-initramfs-presents` PASS (`/boot/vmlinuz-linux` + `vmlinuz-lts` recréés
+en liens vers `/usr/lib/modules/<kv>/vmlinuz`, initramfs linux **et** LTS présentes dans la cible).
+`install-finalize-depmod-propre` PASS (0 erreur depmod). Batterie live `FAILS=0`.
+Secure Boot : `SB_POSITIVE_OK SB_NEGATIVE_OK` (`PASTEQUE-SECUREBOOT: 1`, 0 `module verification failed`).
+ISO : 5817 MiB, `ETCHER_COMPATIBLE`, sha256. Artefacts : `gh run download 46034672263 -n pasteque-iso` / `-n test-logs`.
+Le run intermédiaire 46018918568 est resté `failure` (FAILS=2 sur les nouveaux checks) jusqu'au fix — aucun masquage.

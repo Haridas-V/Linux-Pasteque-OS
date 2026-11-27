@@ -206,3 +206,14 @@ PASTEQUE-SECUREBOOT utilise desormais securityfs d'abord, puis l'efivar EFI en r
 - sb_boot_test: POSITIF LOGIN_OK secureboot_enabled=True (PASTEQUE-SECUREBOOT: 1 en serie) module_verification_failed=False ; NEGATIF bloque par le shim -> SB_POSITIVE_OK SB_NEGATIVE_OK
 - Run 46000041335 (e1b9692) : SUCCESS aussi. Run 45995052877 : failure = 503 transitoire codeberg -> netutil retry (fix).
 - Correctif supplementaire apres lecture des artefacts : /boot exclu du squashfs -> finalize-install recree /boot/vmlinuz-linux et /boot/vmlinuz-lts dans la cible (sinon mkinitcpio -P echoue en install reelle) + 2 checks live stricts (install-finalize-sans-erreur, install-boot-noyaux-et-initramfs-presents).
+
+## Run CI FINAL VERT : 46034672263 (commit 7931d28) — SUCCESS
+- 43 tests unitaires PASS ; 12982/12982 modules signes ; noyaux ISO verifies signes (linux+lts) ; ISO 5817 MiB ETCHER_COMPATIBLE
+- BOOT_OK ; USB_BOOT_OK + USB_UEFI_BOOT_OK ; live FAILS=0
+- Nouveaux checks stricts PASS : install-finalize-sans-erreur (0 ERREUR — /boot/grub cree par finalize)
+  et install-boot-noyaux-et-initramfs-presents (/newroot/mnt/target/boot/vmlinuz-linux -> /usr/lib/modules/7.3.6-arch1-1/vmlinuz, initramfs linux+lts presentes)
+- install-finalize-depmod-propre PASS (0 erreur depmod)
+- sb_boot_test : SB_POSITIVE_OK SB_NEGATIVE_OK (POSITIF LOGIN_OK secureboot_enabled=True, PASTEQUE-SECUREBOOT: 1)
+- Run intermediaire 46018918568 (ee900f5) avait FAILS=2 sur les 2 nouveaux checks -> cause racine trouvee
+  dans les artefacts : grub-mkconfig echouait ('/boot/grub/grub.cfg.new: No such file or directory',
+  /boot exclu du squashfs) -> mkdir -p /boot/grub dans finalize (7931d28). L'echec est reste visible en CI.
