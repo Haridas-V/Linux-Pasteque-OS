@@ -1,0 +1,54 @@
+#!/bin/bash
+# Installe la chaîne EFI SIGNÉE embarquée (/usr/share/pasteque/sb, vérifiée au build)
+# sur l'ESP d'un système installé, pour que le boot sous Secure Boot fonctionne sur
+# un VRAI firmware UEFI : Calamares (module bootloader) écrit sinon un grubx64.efi
+# NON signé sur l'ESP, que le firmware rejette quand Secure Boot est actif.
+# Chaîne installée : BOOTX64.EFI = shim signé Microsoft -> grubx64.efi signé (MOK Pastèque)
+#                   -> noyau signé -> modules signés.
+# Usage : pasteque-secureboot-install [ESP]   (défaut /boot/efi)
+# Sans ESP (install BIOS i386-pc) : rien à faire, exit 0.
+set -e
+ESP="${1:-/boot/efi}"
+SB="${PASTEQUE_SB_DIR:-/usr/share/pasteque/sb}"   # PASTEQUE_SB_DIR = tests uniquement
+if [ ! -d "$ESP/EFI" ]; then
+    echo "[sb-install] pas d'ESP ($ESP/EFI absent) -> install BIOS, Secure Boot non applicable"
+    exit 0
+fi
+for f in shimx64.efi grubx64.efi SHA256SUMS; do
+    if [ ! -f "$SB/$f" ]; then
+        echo "[sb-install] ERREUR: $SB/$f absent (build incomplet -> système installé NON bootable sous SB)" >&2
+        exit 1
+    fi
+done
+mkdir -p "$ESP/EFI/BOOT" || { echo "[sb-install] ERREUR: mkdir $ESP/EFI/BOOT" >&2; exit 1; }
+cp "$SB/shimx64.efi" "$ESP/EFI/BOOT/BOOTX64.EFI" || { echo "[sb-install] ERREUR: cp shim -> BOOTX64.EFI" >&2; exit 1; }
+cp "$SB/grubx64.efi" "$ESP/EFI/BOOT/grubx64.efi" || { echo "[sb-install] ERREUR: cp grub BOOT" >&2; exit 1; }
+if [ -f "$SB/mmx64.efi" ]; then
+    cp "$SB/mmx64.efi" "$ESP/EFI/BOOT/mmx64.efi" || { echo "[sb-install] ERREUR: cp mmx64" >&2; exit 1; }
+fi
+# répertoire distro (EFI/<vendor>/grubx64.efi) : remplacer aussi par le grub signé
+for d in "$ESP"/EFI/*/; do
+    case "$d" in */EFI/BOOT/) continue ;; esac
+    if [ -f "$d/grubx64.efi" ]; then
+        cp "$SB/grubx64.efi" "$d/grubx64.efi" || { echo "[sb-install] ERREUR: cp grub $d" >&2; exit 1; }
+    fi
+done
+# vérification d'intégrité des fichiers copiés (sommes SHA256 embarquées au build, noms ESP)
+if ! ( cd "$ESP/EFI/BOOT" && sha256sum -c "$SB/SHA256SUMS" ); then
+    echo "[sb-install] ERREUR: sha256 de la chaîne EFI copiée ne correspond pas au build" >&2
+    exit 1
+fi
+# entrée de boot vers le shim (chemin de repli universel \EFI\BOOT\BOOTX64.EFI)
+if command -v efibootmgr >/dev/null 2>&1 && [ -d /sys/firmware/efi ]; then
+    src=$(findmnt -n -o SOURCE "$ESP" 2>/dev/null) || src=""
+    if [ -n "$src" ]; then
+        disk=$(echo "$src" | sed 's/[0-9]*$//')
+        part=$(echo "$src" | sed 's/.*[^0-9]//')
+        if [ -n "$disk" ] && [ -n "$part" ] && [ "$part" != "$src" ]; then
+            if ! efibootmgr -c -d "$disk" -p "$part" -L "Pastèque Linux" -l '\EFI\BOOT\BOOTX64.EFI' 2>/dev/null; then
+                echo "[sb-install] note: efibootmgr -c a échoué (entrée existante ?), le repli \\EFI\\BOOT\\BOOTX64.EFI suffit" >&2
+            fi
+        fi
+    fi
+fi
+echo "[sb-install] OK: chaîne Secure Boot signée installée sur $ESP (shim MS en BOOTX64.EFI, grub signé, MokManager)"

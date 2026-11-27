@@ -95,4 +95,8 @@ grub-mkconfig -o /boot/grub/grub.cfg || { echo "[pasteque-finalize] ERREUR grub-
 /usr/bin/python3 /usr/local/bin/pasteque-install-extras || { echo '[pasteque-finalize] ERREUR install-extras (applis offline manquantes)' >&2; exit 1; }
 # entrée de menu pour le gestionnaire d'applications Pastèque
 update-desktop-database /usr/share/applications 2>/dev/null || true
+# Secure Boot du système installé : chaîne EFI signée sur l'ESP (Calamares/bootloader
+# a écrit un grubx64.efi NON signé ; un vrai firmware SB le rejette). shellprocess
+# tourne APRES bootloader dans settings.conf, donc cette copie gagne.
+/usr/local/bin/pasteque-secureboot-install /boot/efi || { echo "[pasteque-finalize] ERREUR: installation chaîne SB sur l'ESP" >&2; exit 1; }
 echo "[pasteque-finalize] OK"

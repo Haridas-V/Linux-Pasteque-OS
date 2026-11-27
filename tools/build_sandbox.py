@@ -630,18 +630,8 @@ def step_iso():
     # filet de securite : tous les scripts maison doivent etre EXECUTABLES dans l'ISO
     # (un oubli de chmod +x en git rendrait l'app invisible au lancement)
     chroot(["/bin/bash", "-c", "chmod +x /usr/local/bin/* || { echo '[build] ERREUR: chmod +x /usr/local/bin/*'; exit 1; }"])
-    # squashfs de l'airootfs (réutilisé si déjà présent et FORCE_SQUASHFS unset)
-    if not os.path.exists(sfs) or os.environ.get("FORCE_SQUASHFS"):
-        if os.path.exists(sfs):
-            os.remove(sfs)
-        excl = ["-e", "boot", "dev", "proc", "sys", "tmp", "run", "mnt", "media",
-            "var/cache/pacman", "var/log", "root", "home",
-            "etc/mtab"]
-        run([os.path.join(TROOT, "usr/bin/mksquashfs"), ROOTFS, sfs,
-             "-comp", "xz", "-b", "1M", "-Xbcj", "x86",
-             "-processors", str(os.cpu_count() or 4), "-noappend", "-no-progress", "-all-root"] + excl)
-    else:
-        print("[build] squashfs réutilisé:", sfs, flush=True)
+    # (le squashfs de l'airootfs est fait PLUS BAS, après la chaîne EFI signée,
+    #  pour que /usr/share/pasteque/sb/*.efi soit embarqué dans le sfs)
 
     # isolinux (BIOS)
     isolinux_bin = os.path.join(TROOT, "usr/lib/ISOLINUX/isolinux.bin")
@@ -711,6 +701,56 @@ def step_iso():
         print("[build] Secure Boot: shim MS + grubx64.efi signe + MokManager embarques", flush=True)
     else:
         print("[build] shim absent ou grub non signe -> BOOTX64.EFI = grub direct (SB off requis)", flush=True)
+
+    # Chaîne EFI signée embarquée dans l'AIROOTFS (/usr/share/pasteque/sb + SHA256SUMS) :
+    # pasteque-finalize-install la copiera sur l'ESP de la cible -> le système INSTALLÉ
+    # bootte aussi sous Secure Boot sur un vrai firmware (Calamares écrirait sinon un
+    # grubx64.efi NON signé, rejeté par le firmware quand SB est actif).
+    if have_shim:
+        sys.path.insert(0, TOOLS)
+        from fetch_shim import pe_signed
+        import hashlib
+        sbdir = os.path.join(ROOTFS, "usr/share/pasteque/sb")
+        os.makedirs(sbdir, exist_ok=True)
+        esp_names = {"shimx64.efi": "BOOTX64.EFI", "grubx64.efi": "grubx64.efi", "mmx64.efi": "mmx64.efi"}
+        chain = [(os.path.join(WORK, "shim", "shimx64.efi"), "shimx64.efi"),
+                 (os.path.join(WORK, "efiwork", "EFI/BOOT/grubx64.efi"), "grubx64.efi"),
+                 (os.path.join(WORK, "shim", "mmx64.efi"), "mmx64.efi")]
+        sums = []
+        for src, name in chain:
+            if not os.path.exists(src):
+                raise RuntimeError("composant chaîne SB absent: %s -> build STOPPE" % src)
+            blob = open(src, "rb").read()
+            if not pe_signed(blob):
+                raise RuntimeError("%s NON signé (pas de table de certificats PE) -> chaîne SB incomplète, build STOPPE" % name)
+            if name == "grubx64.efi":
+                sbv = os.path.join(TROOT, "usr/bin/sbverify")
+                crt = os.path.join(WORK, "sb", "sb.crt")
+                if os.path.exists(sbv) and os.path.exists(crt):
+                    r = run([sbv, "--cert", crt, src], check=False, capture_output=True, text=True)
+                    if r.returncode != 0:
+                        raise RuntimeError("grubx64.efi non vérifiable avec work/sb/sb.crt: %s" % (r.stderr or "")[-200:])
+            with open(os.path.join(sbdir, name), "wb") as f:
+                f.write(blob)
+            sums.append("%s  %s" % (hashlib.sha256(blob).hexdigest(), esp_names[name]))
+        with open(os.path.join(sbdir, "SHA256SUMS"), "w") as f:
+            f.write("\n".join(sums) + "\n")
+        print("[build] chaîne EFI signée embarquée dans l'airootfs: /usr/share/pasteque/sb/ + SHA256SUMS (noms ESP)", flush=True)
+
+    # squashfs de l'airootfs (réutilisé si déjà présent et FORCE_SQUASHFS unset)
+    # -> placé APRÈS la chaîne EFI signée pour embarquer /usr/share/pasteque/sb dans le sfs
+    if not os.path.exists(sfs) or os.environ.get("FORCE_SQUASHFS"):
+        if os.path.exists(sfs):
+            os.remove(sfs)
+        excl = ["-e", "boot", "dev", "proc", "sys", "tmp", "run", "mnt", "media",
+            "var/cache/pacman", "var/log", "root", "home",
+            "etc/mtab"]
+        run([os.path.join(TROOT, "usr/bin/mksquashfs"), ROOTFS, sfs,
+             "-comp", "xz", "-b", "1M", "-Xbcj", "x86",
+             "-processors", str(os.cpu_count() or 4), "-noappend", "-no-progress", "-all-root"] + excl)
+    else:
+        print("[build] squashfs réutilisé:", sfs, flush=True)
+
     efi_img = os.path.join(iso, "boot/efi.img")
     # 1024 MiB : un FAT32 (noyau + initrd principal ET LTS embarques) valide exige >= 65525 clusters, sinon le pilote FAT d'EDK II refuse de monter l'image.
     # On y embarque kernel + initrd + grub.cfg : au boot UEFI depuis une cle USB flashee (Etcher/dd),

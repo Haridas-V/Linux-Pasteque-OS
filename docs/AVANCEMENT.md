@@ -217,3 +217,17 @@ PASTEQUE-SECUREBOOT utilise desormais securityfs d'abord, puis l'efivar EFI en r
 - Run intermediaire 46018918568 (ee900f5) avait FAILS=2 sur les 2 nouveaux checks -> cause racine trouvee
   dans les artefacts : grub-mkconfig echouait ('/boot/grub/grub.cfg.new: No such file or directory',
   /boot exclu du squashfs) -> mkdir -p /boot/grub dans finalize (7931d28). L'echec est reste visible en CI.
+
+## Issue « Secure Boot sur vrai matériel » (runs 73/74) — écart VM vs réel identifié et corrigé
+- Run #73 (46034672263) VERT en OVMF : live USB SB OK (SB_POSITIVE_OK SB_NEGATIVE_OK). Run #74 = docs.
+- Écart matériel restant trouvé par audit : à l'INSTALL, le module bootloader de Calamares
+  écrit un grubx64.efi NON signé sur l'ESP -> vrai firmware SB le rejette (la live, elle,
+  a toute la chaîne signée). Corrigé :
+  * build : chaîne EFI signée embarquée dans l'airootfs /usr/share/pasteque/sb/ + SHA256SUMS
+    (noms ESP), copiée AVANT mksquashfs, vérifiée pe_signed + sbverify --cert, build STOPPE sinon ;
+  * settings.conf : shellprocess (finalize) déplacé APRES bootloader/grubcfg ;
+  * nouveau pasteque-secureboot-install (finalize) : installe shim MS en BOOTX64.EFI + grub signé
+    (EFI/BOOT + EFI/<vendor>) + MokManager + entrée efibootmgr, puis sha256sum -c fatal ;
+  * tests : 44 unitaires PASS (test fonctionnel réel du script : ESP simulée, sommes fausses -> exit 1)
+    + 3 checks live VM (install-sb-chaine-esp / -sha256-esp / -grub-distro-remplace-par-signe).
+- Validation locale en cours : rebuild ISO avec le step_iso réorganisé -> vérifier /usr/share/pasteque/sb dans le sfs.

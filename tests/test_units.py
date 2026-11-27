@@ -790,6 +790,69 @@ def test_fetch_url_retry():
             "%s a encore un urlopen brut sans retry" % tool
 
 
+def test_sb_chain_systeme_installe():
+    """Mission issue #68 (vrai matériel) : le système INSTALLÉ doit booter sous Secure
+    Boot. Calamares (module bootloader) écrit un grubx64.efi NON signé sur l'ESP, rejeté
+    par un vrai firmware SB. Correctifs vérifiés ici :
+    - build embarque la chaîne EFI signée dans l'airootfs (/usr/share/pasteque/sb +
+      SHA256SUMS en noms ESP), vérifiée pe_signed/sbverify au build, build STOPPE sinon,
+      et copiée dans la rootfs AVANT mksquashfs (sinon absente du sfs) ;
+    - settings.conf : shellprocess (finalize) APRES bootloader/grubcfg ;
+    - pasteque-secureboot-install copie la chaîne signée sur l'ESP + sha256sum -c fatal ;
+    - test FONCTIONNEL réel du script (ESP simulée, sommes fausses -> exit 1)."""
+    import subprocess
+    import tempfile
+    bs = open(os.path.join(REPO, "tools/build_sandbox.py"), encoding="utf-8").read()
+    assert "usr/share/pasteque/sb" in bs and "SHA256SUMS" in bs, "la chaîne signée doit être embarquée dans l'airootfs"
+    assert '"shimx64.efi": "BOOTX64.EFI"' in bs, "SHA256SUMS doit utiliser les noms ESP (BOOTX64.EFI)"
+    assert "build STOPPE" in bs, "build doit s'arrêter si un composant de la chaîne SB est absent/non signé"
+    assert bs.index("usr/share/pasteque/sb") < bs.index("usr/bin/mksquashfs"), \
+        "la chaîne SB doit être copiée dans la rootfs AVANT l'appel mksquashfs (sinon pas dans le sfs)"
+    sc = open(os.path.join(REPO, "profile/airootfs/etc/calamares/settings.conf"), encoding="utf-8").read()
+    seq = sc[sc.index("sequence:"):]
+    assert seq.index("bootloader") < seq.index("grubcfg") < seq.index("shellprocess"), \
+        "shellprocess (finalize) doit tourner APRES bootloader/grubcfg pour remplacer le grub non signé"
+    fin = open(os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-finalize-install"), encoding="utf-8").read()
+    assert "pasteque-secureboot-install /boot/efi" in fin, "finalize doit appeler l'installateur de chaîne SB"
+    sipath = os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-secureboot-install")
+    si = open(sipath, encoding="utf-8").read()
+    assert "BOOTX64.EFI" in si and "sha256sum -c" in si and "exit 1" in si, "script incomplet"
+    assert "|| true" not in si, "pas de || true dans le script SB"
+    assert os.stat(sipath).st_mode & 0o111, "pasteque-secureboot-install doit être exécutable"
+    # test fonctionnel réel du script : ESP simulée + chaîne simulée
+    with tempfile.TemporaryDirectory() as d:
+        sb = os.path.join(d, "sb")
+        esp = os.path.join(d, "esp/EFI")
+        os.makedirs(os.path.join(sb))
+        os.makedirs(os.path.join(esp, "BOOT"))
+        os.makedirs(os.path.join(esp, "pasteque"))
+        import hashlib
+        names = {"shimx64.efi": "BOOTX64.EFI", "grubx64.efi": "grubx64.efi", "mmx64.efi": "mmx64.efi"}
+        sums = []
+        for n in names:
+            data = ("SIGNED-" + n).encode() * 50
+            open(os.path.join(sb, n), "wb").write(data)
+            sums.append("%s  %s" % (hashlib.sha256(data).hexdigest(), names[n]))
+        open(os.path.join(sb, "SHA256SUMS"), "w").write("\n".join(sums) + "\n")
+        open(os.path.join(esp, "pasteque/grubx64.efi"), "w").write("NON-SIGNE")
+        env = dict(os.environ, PASTEQUE_SB_DIR=sb)
+        r = subprocess.run(["/bin/bash", sipath, os.path.join(d, "esp")],
+                           env=env, capture_output=True, text=True)
+        assert r.returncode == 0, "script OK attendu: %s %s" % (r.stdout, r.stderr)
+        assert open(os.path.join(esp, "BOOT/BOOTX64.EFI"), "rb").read() == ("SIGNED-shimx64.efi".encode() * 50)
+        assert open(os.path.join(esp, "pasteque/grubx64.efi"), "rb").read() == ("SIGNED-grubx64.efi".encode() * 50), \
+            "le grub du répertoire distro doit être remplacé par le grub signé"
+        # cas négatif : sommes fausses -> exit 1 franc
+        open(os.path.join(sb, "SHA256SUMS"), "w").write("0" * 64 + "  BOOTX64.EFI\n")
+        r2 = subprocess.run(["/bin/bash", sipath, os.path.join(d, "esp")],
+                            env=env, capture_output=True, text=True)
+        assert r2.returncode == 1, "sommes fausses -> exit 1 attendu, rc=%d" % r2.returncode
+        # cas BIOS : pas d'ESP -> exit 0 sans rien faire
+        r3 = subprocess.run(["/bin/bash", sipath, os.path.join(d, "noesp")],
+                            env=env, capture_output=True, text=True)
+        assert r3.returncode == 0 and "BIOS" in r3.stdout, "sans ESP -> exit 0 (BIOS)"
+
+
 def test_wait_sock_call_sites_compat():
     """Regression : sb_boot_test appelait wait_sock(..., timeout=60) alors que la
     signature n'avait que tries= -> TypeError en CI. Verifie que CHAQUE appel
@@ -856,6 +919,7 @@ if __name__ == "__main__":
     t("noyaux signes sur le chemin REEL (anti-symlink) + guard ISO : noyau non signe = build fail", test_kernel_signed_real_path_and_iso_guard)
     t("marqueur console PASTEQUE-SECUREBOOT (securityfs) lu par sb_boot_test", test_sb_console_marker)
     t("fetch_url_retry : retry 503 + echec franc (test fonctionnel serveur HTTP local)", test_fetch_url_retry)
+    t("chaîne SB du système installé (issue #68 matériel) : embarquée, signée, ESP, test fonctionnel", test_sb_chain_systeme_installe)
     print()
     if FAIL:
         print("ECHECS:", FAIL)

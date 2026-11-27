@@ -113,3 +113,33 @@ la chaîne de signatures, mais **pas** une validation matérielle. Sur un vrai P
 `mokutil --sb-state` (doit dire `enabled`), boot avec la clé enrôlée, et
 `dmesg | grep -i "secure boot\|module verification"` — voir
 `docs/POINTS_A_VALIDER_EN_MATERIEL.md`.
+
+## Le système INSTALLÉ sous Secure Boot (vrai matériel — issue « runs 73/74 »)
+
+La live bootée depuis la clé USB a toute la chaîne signée (testée en OVMF secboot :
+`SB_POSITIVE_OK SB_NEGATIVE_OK`). Mais à l'**installation**, le module `bootloader`
+de Calamares écrit sur l'ESP un `grubx64.efi` **non signé** (celui du paquet grub) :
+un vrai firmware avec Secure Boot actif le rejette — c'est l'écart VM vs matériel réel.
+
+Correction (build + install) :
+
+1. **Le build embarque la chaîne signée dans l'airootfs** :
+   `/usr/share/pasteque/sb/{shimx64.efi, grubx64.efi, mmx64.efi}` + `SHA256SUMS`
+   (noms ESP : `BOOTX64.EFI`, `grubx64.efi`, `mmx64.efi`), copiés **avant** le
+   `mksquashfs` pour être dans le squashfs. Le build **échoue** si un composant est
+   absent ou non signé (`pe_signed` + `sbverify --cert work/sb/sb.crt` sur le grub).
+2. **`settings.conf`** : `shellprocess` (notre `pasteque-finalize-install`) tourne
+   désormais **après** `bootloader`/`grubcfg`, donc sa copie gagne sur le grub non signé.
+3. **`pasteque-secureboot-install`** (appelé par finalize, testé fonctionnellement) :
+   copie le shim signé Microsoft en `EFI/BOOT/BOOTX64.EFI`, le grub signé en
+   `EFI/BOOT/grubx64.efi` **et** dans le répertoire distro `EFI/<vendor>/`, le
+   MokManager en `EFI/BOOT/mmx64.efi`, crée l'entrée `efibootmgr` vers
+   `\EFI\BOOT\BOOTX64.EFI`, puis **vérifie `sha256sum -c SHA256SUMS`** (exit 1 si
+   la chaîne copiée ne correspond pas au build). Sans ESP (install BIOS) : exit 0.
+
+Chaîne résultante sur le disque installé, identique à la live :
+`firmware db (Microsoft) → BOOTX64.EFI (shim MS) → grubx64.efi (signé, vérifié MOK) → vmlinuz (signé) → modules (signés)`.
+
+Test VM : `install-sb-chaine-esp`, `install-sb-sha256-esp`, `install-sb-grub-distro-remplace-par-signe`
+dans `tests/live_shell.py` (ESP simulée dans la cible, install réelle du script en chroot).
+Reste à valider sur vrai PC : enrôler le MOK (procédure ci-dessus), SB=ON, booter le disque installé.
