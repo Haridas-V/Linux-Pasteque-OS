@@ -27,7 +27,12 @@ activé officiellement ; Fortnite est « Vérifié » Steam Deck).
 
 > Si Epic te demande de vérifier ton e-mail/appareil, fais-le depuis un navigateur.
 
-## Autres jeux en ligne testés
+## Autres jeux en ligne — statut connu (sources publiques)
+
+> **Honnêteté** : ces statuts viennent de sources publiques (areweanticheatyet.com,
+> listings Steam Deck « Vérifié »). **Aucun** de ces jeux n'a été testé contre les
+> vrais serveurs Epic/Steam depuis cette ISO en VM — la validation en ligne réelle
+> se fait en matériel, voir `POINTS_A_VALIDER_EN_MATERIEL.md`.
 
 | Jeu | Lanceur | Anti-cheat | Statut Linux |
 |---|---|---|---|

@@ -15,6 +15,12 @@ le test positif n'est pas vide. Les deux varstores sont construits avec
 `virt-fw-vars --secure-boot` explicite et RE-LUS (`--print --verbose`) pour exiger
 SecureBoot=ON avant de booter : un varstore sans SB actif invaliderait le test.
 
+Le boot se fait en DISQUE RAW (ISO ecrite en bloc, comme Etcher/dd sur cle USB) :
+c'est le chemin reel de deploiement, et OVMF charge alors le shim depuis la
+partition MBR 0xEF. (Le boot CD via El Torito sous OVMF secboot echoue cote firmware
+avec « failed to load Boot0001 » — contournement documente dans docs/AVANCEMENT.md ;
+le boot CD sans SB reste valide, teste par tests/live_shell.py.)
+
 Sortie : exit 0 si positif OK ET negatif bloque ; exit 2 sinon ; exit 3 si
 outils absents (OVMF secboot / virt-fw-vars / qemu) — appele alors SKIP explicite.
 
@@ -141,8 +147,11 @@ def verify_sb_on(vars_path, expect_cn=None):
     return True
 
 
-def boot_once(qemu, code_fd, vars_fd, iso, sock, timeout, extra_append=""):
-    """Boot via OVMF (pflash) + cdrom. Retourne le log serial complet."""
+def boot_once(qemu, code_fd, vars_fd, disk, sock, timeout, extra_append=""):
+    """Boot via OVMF (pflash) + disque raw (ISO ecrite en bloc, comme Etcher sur une
+    cle USB — chemin reel ; le boot CD El Torito sous OVMF secboot echoue cote firmware
+    avec une erreur 'failed to load Boot0001' non documentee, voir docs/AVANCEMENT.md).
+    Retourne le log serial complet."""
     if os.path.exists(sock):
         os.remove(sock)
     append = "archisolabel=PASTEQUE archisobasedir=arch console=ttyS0,115200" + extra_append
@@ -162,7 +171,10 @@ def boot_once(qemu, code_fd, vars_fd, iso, sock, timeout, extra_append=""):
         "-global", "driver=cfi.pflash01,property=secure,value=on",
         "-drive", "if=pflash,format=raw,readonly=on,file=" + code_fd,
         "-drive", "if=pflash,format=raw,file=" + vars_fd,
-        "-cdrom", iso, "-boot", "d",
+        # ISO ecrite en raw sur un disque virtio : OVMF voit la partition MBR 0xEF (ESP)
+        # et charge \EFI\BOOT\BOOTX64.EFI (shim) depuis la partition — comme une vraie cle USB
+        "-drive", "if=none,id=sbdisk,format=raw,readonly=on,file=" + disk,
+        "-device", "virtio-blk-pci,drive=sbdisk",
         "-display", "none", "-vga", "none",
         "-serial", "unix:%s,server,nowait" % sock,
         "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0",
@@ -245,8 +257,16 @@ def main():
         sys.exit(2)
     print("[sb] varstores OK: Secure Boot verifie ON dans les deux, cle Pastèque en db pour le positif", flush=True)
 
+    # ISO ecrite en raw sur un disque (comme Etcher/dd sur cle USB) : chemin de boot reel
+    disk = os.path.join(work, "usb.img")
+    r = subprocess.run(["cp", "--sparse=always", iso, disk])
+    if r.returncode != 0 or not os.path.exists(disk):
+        print("[sb] ERREUR: copie raw de l'ISO vers %s a echoue" % disk, flush=True)
+        sys.exit(2)
+    print("[sb] disque raw pret: %s (%d Mo)" % (disk, os.path.getsize(disk) // (1024 * 1024)), flush=True)
+
     # --- test POSITIF : SB on + cle enrôlée -> boot complet attendu ---
-    log, proc, state = boot_once(qemu, code, vars_ok, iso, os.path.join(work, "pos.sock"), timeout)
+    log, proc, state = boot_once(qemu, code, vars_ok, disk, os.path.join(work, "pos.sock"), timeout)
     open(os.path.join(work, "serial-sb-on.log"), "w").write(log or "")
     sb_enabled = bool(log) and ("secure boot enabled" in log.lower()
                                 or "locked down from efi secure boot" in log.lower())
@@ -257,7 +277,7 @@ def main():
     pos_ok = login_ok and sb_enabled and not mod_fail
 
     # --- controle NEGATIF : SB on, cle ABSENTE -> boot bloque par le shim ---
-    log2, proc2, state2 = boot_once(qemu, code, vars_ko, iso, os.path.join(work, "neg.sock"), min(timeout, 300))
+    log2, proc2, state2 = boot_once(qemu, code, vars_ko, disk, os.path.join(work, "neg.sock"), min(timeout, 300))
     open(os.path.join(work, "serial-sb-off.log"), "w").write(log2 or "")
     blocked = state2 in ("BLOCKED", "TIMEOUT") and "login:" not in (log2 or "").lower()
     print("[sb] NEGATIF (sans la cle): etat=%s bloque=%s" % (state2, blocked), flush=True)

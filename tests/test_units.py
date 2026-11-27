@@ -529,6 +529,9 @@ def test_sb_boot_test_real():
     assert '"-L", qemu_data' in src, "sb_boot_test doit passer -L <datadir qemu> (roms kvmvapic/efi-*)"
     assert "q35,smm=on" in src, "machine q35 avec SMM requis par OVMF secboot"
     assert "cfi.pflash01,property=secure,value=on" in src, "pflash secure requis par OVMF secboot"
+    # boot en disque RAW (chemin Etcher), pas en -cdrom (El Torito + OVMF secboot casse cote firmware)
+    assert "if=none,id=sbdisk" in src and "virtio-blk-pci" in src, "boot SB en disque raw (partition MBR 0xEF), pas en cdrom"
+    assert '"-cdrom"' not in src, "plus de boot SB en -cdrom (El Torito + secboot non fiable)"
 
 
 def test_test_suites_exit_nonzero_on_failure():
