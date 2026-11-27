@@ -199,3 +199,10 @@ PASTEQUE-SECUREBOOT utilise desormais securityfs d'abord, puis l'efivar EFI en r
   HTTP local — succès après 2×503, échec franc si indisponible).
 - Run CI 45995052877 : échec **transitoire** (HTTP 503 codeberg au fetch du tarball
   Calamares, étape AUR) -> corrigé par `fetch_url_retry` (commit e1b9692). Run suivant : 46000041335.
+
+## Run CI vert 46000641720 (e692abe) — TOUT PASS
+- 43 tests unitaires PASS en CI ; build docker trixie : noyaux ISO verifies signes (vmlinuz-linux + vmlinuz-lts, garde require_signed_iso_kernel), 12982/12982 modules signes, ISO 5817 MiB, ETCHER_COMPATIBLE
+- [vm] BOOT_OK ; USB_BOOT_OK + USB_UEFI_BOOT_OK ; live PASS=55 FAIL=0 (FAILS=0) ; install VM OK (finalize+grub, depmod propre, boot disque installe, sudo gamer)
+- sb_boot_test: POSITIF LOGIN_OK secureboot_enabled=True (PASTEQUE-SECUREBOOT: 1 en serie) module_verification_failed=False ; NEGATIF bloque par le shim -> SB_POSITIVE_OK SB_NEGATIVE_OK
+- Run 46000041335 (e1b9692) : SUCCESS aussi. Run 45995052877 : failure = 503 transitoire codeberg -> netutil retry (fix).
+- Correctif supplementaire apres lecture des artefacts : /boot exclu du squashfs -> finalize-install recree /boot/vmlinuz-linux et /boot/vmlinuz-lts dans la cible (sinon mkinitcpio -P echoue en install reelle) + 2 checks live stricts (install-finalize-sans-erreur, install-boot-noyaux-et-initramfs-presents).

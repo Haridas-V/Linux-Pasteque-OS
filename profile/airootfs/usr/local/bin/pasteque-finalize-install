@@ -54,6 +54,28 @@ PRESETS=('default')
 default_image="/boot/initramfs-lts.img"
 default_kver="/boot/vmlinuz-lts"
 EOC
+# /boot est EXCLU du squashfs live (les noyaux de boot vivent dans iso/boot/x86_64) :
+# dans la cible copiee par Calamares, /boot est donc vide -> recreer les liens noyaux
+# standards depuis /usr/lib/modules (present dans la sfs). Sinon mkinitcpio -P echoue
+# ("-k /boot/vmlinuz-linux must be readable") et l'installation reelle rate.
+main_kv=""
+lts_kv=""
+for kv in $(ls /usr/lib/modules 2>/dev/null); do
+    case "$kv" in
+        *-lts*) if [ -z "$lts_kv" ]; then lts_kv="$kv"; fi ;;
+        *) if [ -z "$main_kv" ]; then main_kv="$kv"; fi ;;
+    esac
+done
+if [ -n "$main_kv" ]; then
+    ln -sfn "/usr/lib/modules/$main_kv/vmlinuz" /boot/vmlinuz-linux
+fi
+if [ -n "$lts_kv" ]; then
+    ln -sfn "/usr/lib/modules/$lts_kv/vmlinuz" /boot/vmlinuz-lts
+fi
+if [ -n "$main_kv" ] && [ ! -r /boot/vmlinuz-linux ]; then
+    echo "[pasteque-finalize] ERREUR: /boot/vmlinuz-linux non recree (noyau absent de la cible)" >&2
+    exit 1
+fi
 # modules renommes .ko.zst -> .ko signes pendant le build (Secure Boot) : l'index kmod
 # embarque reference encore les .ko.zst -> regenerer, ECHEC FATAL (sinon modules
 # introuvables au boot de la cible et erreurs depmod en cascade)

@@ -567,6 +567,11 @@ def test_no_masked_critical_commands():
     creation user live, sha256 de l'ISO, import cle GPG quand une cle est fournie."""
     fin = open(os.path.join(REPO, "profile/airootfs/usr/local/bin/pasteque-finalize-install"), encoding="utf-8").read()
     assert "depmod -a ||" in fin, "finalize-install doit regenerer l'index kmod (modules .ko.zst->.ko signes) en FATAL"
+    # /boot est exclu du squashfs : finalize doit recreer les liens noyaux dans /boot
+    # de la cible, sinon mkinitcpio -P echoue en install reelle ("must be readable")
+    assert "/boot/vmlinuz-linux" in fin and "ln -sfn" in fin and "/usr/lib/modules" in fin, \
+        "finalize-install doit recreer /boot/vmlinuz-linux et /boot/vmlinuz-lts dans la cible (/boot exclu du squashfs)"
+    assert "non recree" in fin, "finalize-install doit echouer si le noyau n'est pas recreable"
     for bad in ("passwd -l root || true",
                 "systemctl enable firewalld 2>/dev/null || true",
                 "systemctl enable sddm 2>/dev/null || true",

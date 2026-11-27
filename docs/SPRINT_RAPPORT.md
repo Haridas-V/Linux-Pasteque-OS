@@ -99,3 +99,31 @@ Boot BIOS/UEFI/USB-Etcher, install disque virtuel, boot système installé, 55 c
 1. Garder le test SB en disque raw ; investiguer le boot CD+secboot (El Torito 1 GiB) si le DVD doit être supporté sous SB.
 2. Envisager `sbctl`-style : renouveler la clé MOK à chaque build signé en CI (la clé est régénérée à chaque build — documenté dans SECURE_BOOT.md).
 3. Ajouter un test `sbverify` systématique de tous les .efi/.ko embarqués en CI (déjà fait au build : 12 982 modules relus).
+
+---
+
+# RAPPORT — round correctif « Secure Boot réel + install » (2026-11-27, commits 2f7b918 → e692abe + fix /boot)
+
+## Défauts trouvés cette session (avec preuves)
+
+| # | Défaut | Preuve | Correction |
+|---|--------|--------|------------|
+| 13 | **Noyau de l'ISO jamais signé** → boot SB : `error: bad shim signature` (grub via shim_lock rejette le noyau). `sb_sign` signait `/boot/vmlinuz-*` — symlink créé par l'étape initramfs qui tourne **après** secureboot dans `all`, donc absent en build frais, et `step_iso` copie depuis `usr/lib/modules/<kv>/vmlinuz` de toute façon | `sbverify --list` sur le noyau extrait de l'ISO locale : « No signature table present » ; screendump OVMF : `Booting 'Pasteque Linux (live)'` → `bad shim signature` → retour menu | `kernel_targets()` (realpath+dedupe), signature **in place** sur `usr/lib/modules/<kv>/vmlinuz`, `exit 1` si aucun noyau, re-vérif `pe_signed` ; garde `require_signed_iso_kernel` au build (sbverify --cert) → **le build échoue** si noyau ISO/ESP non signé |
+| 14 | Marqueur SB nul : les 1ers messages noyau partent avant la console série, et `/sys/kernel/security/secureboot` **n'existe pas** dans le noyau Arch 7.3.6 | debug OVMF secboot réel : `od -j4 -N1` sur l'efivar `SecureBoot-8be4df61-…` → **1** ; securityfs montée mais sans le fichier | `pasteque-liveuser` imprime `PASTEQUE-SECUREBOOT: <valeur>` sur /dev/console (securityfs d'abord, **repli efivar EFI** avec montage efivarfs si besoin) ; `sb_boot_test.py` attend le marqueur (grâce 180 s) |
+| 15 | Erreurs depmod `.ko.zst` dans la cible installée : le glob des modules ne couvrait que `kernel/**` (pas `updates/`, `extra/`), et `modules.dep` embarqué référençait les `.ko.zst` renommés | `install-finalize.txt` d'un run CI | glob élargi à `usr/lib/modules/*/**/*.ko*` ; `depmod -a` **fatal** dans finalize avant `mkinitcpio -P` → run vert : `install-finalize-depmod-propre` PASS, 0 erreur depmod |
+| 16 | **Install réelle cassée** : `/boot` est exclu du squashfs → la cible Calamares a un `/boot` vide → `mkinitcpio -P` échoue (« `-k /boot/vmlinuz-lts must be readable` »), preset LTS en erreur | `install-finalize.txt` run 46000641720 (masqué par le harnais qui ne copiait que vmlinuz-linux) | `pasteque-finalize-install` recrée `/boot/vmlinuz-linux` et `/boot/vmlinuz-lts` (liens vers `/usr/lib/modules/<kv>/vmlinuz`) et **échoue** si non recréable ; 2 nouveaux checks live stricts (`install-finalize-sans-erreur`, `install-boot-noyaux-et-initramfs-presents`) |
+| 17 | Run CI 45995052877 : échec **transitoire** HTTP 503 (codeberg, tarball Calamares) — `step_aur` sans retry ; idem potentiel sur archrepo/fetch_deb_tools/fetch_shim | log CI run 45995052877 | `tools/netutil.py` (retry 5×, backoff exponentiel, écriture atomique `.part`, RuntimeError franche) utilisé par **tous** les fetchs du build ; test fonctionnel réel (serveur HTTP local : OK après 2×503, échec franc si HS) ; plus aucun `urlopen` brut hors netutil/fetch_extras |
+| 18 | Doc MOK imprécise | relecture | `SECURE_BOOT.md` : enrôlement dans **MokList** (GUID shim), lancement direct de `mmx64.efi`, section « tests automatisés » distinguant QEMU/OVMF réel vs validation matérielle |
+
+## Résultats (réels, vérifiables)
+
+- **43/43 tests unitaires PASS** (local + CI à chaque build).
+- **Run CI 46000641720 (commit e692abe) : SUCCESS** — build complet → `noyau ISO verifie signe` (vmlinuz-linux **et** vmlinuz-lts, garde actif) → ISO 5817 MiB → `ETCHER_COMPATIBLE` → `[vm] BOOT_OK` → `USB_BOOT_OK, USB_UEFI_BOOT_OK` → live **PASS=55 FAIL=0** (`FAILS=0` dans report.md) → **`SB_POSITIVE_OK SB_NEGATIVE_OK`** : positif `LOGIN_OK secureboot_enabled=True module_verification_failed=False` avec `PASTEQUE-SECUREBOOT: 1` en série ; négatif (clé absente) bloqué par le shim. 12 982/12 982 modules signés, 0 non signés après relecture.
+- Run CI 46000041335 (e1b9692) : SUCCESS également.
+- Validation **locale** indépendante (QEMU+OVMF secboot réels, sandbox) : `sbverify --cert` OK sur noyaux ISO + ESP ; `RESULT: SB_POSITIVE_OK SB_NEGATIVE_OK` ; efivar lu à `1` ; lockdown `integrity`.
+- Artefacts : `pasteque-iso` (ISO + sha256 ; `.asc` si secrets GPG configurés) et `test-logs` (report.md, logs série, screendumps). Téléchargement manuel : `gh run download 46000641720 -n pasteque-iso` / `-n test-logs`.
+- L'échec reste visible : les runs défaillants précédents (45950999610, 45995052877) sont restés `failure` (503 réseau ou test SB) — aucun masquage (`set -e`, uploads `if: always()`).
+
+## Non revendiqué (honnête)
+- Boot CD sous OVMF **secboot** (El Torito) : non résolu côté firmware ; le test SB boot en disque raw (chemin Etcher réel). Boot CD sans SB : vert.
+- Validation matérielle réelle (MOK enrôlé sur PC, Fortnite contre les vrais serveurs Epic, dual-boot/LUKS réels, GPU/écran réels) : impossible ici → `docs/POINTS_A_VALIDER_EN_MATERIEL.md`.

@@ -497,6 +497,15 @@ printf 'set timeout=1\\nserial --speed=115200\\nterminal_output console serial\\
     n_depmod_err = out.count("depmod: ERROR")
     rep.check("install-finalize-depmod-propre", n_depmod_err == 0,
               "%d erreurs depmod (modules non lisibles = index kmod casse)" % n_depmod_err if n_depmod_err else "")
+    # aucune erreur fatale dans finalize (mkinitcpio -P doit reussir pour les 2 presets :
+    # /boot est exclu du squashfs -> finalize doit recreer les liens noyaux dans /boot)
+    n_err = out.count("[pasteque-finalize] ERREUR")
+    rep.check("install-finalize-sans-erreur", n_err == 0,
+              "%d '[pasteque-finalize] ERREUR' dans install-finalize.txt" % n_err if n_err else "")
+    out2, rc2 = ser.run("ls -la /boot/vmlinuz-linux /boot/vmlinuz-lts /boot/initramfs-linux.img /boot/initramfs-lts.img 2>&1", timeout=60)
+    rep.check("install-boot-noyaux-et-initramfs-presents",
+              rc2 == 0 and "initramfs-lts.img" in out2 and "vmlinuz-lts" in out2,
+              out2[-300:])
     ser.run("sync", timeout=60)
     proc.kill()
     proc.wait(timeout=30)
