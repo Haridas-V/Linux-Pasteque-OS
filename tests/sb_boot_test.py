@@ -146,8 +146,18 @@ def boot_once(qemu, code_fd, vars_fd, iso, sock, timeout, extra_append=""):
     if os.path.exists(sock):
         os.remove(sock)
     append = "archisolabel=PASTEQUE archisobasedir=arch console=ttyS0,115200" + extra_append
-    proc = subprocess.Popen([
-        qemu, "-machine", "q35,smm=on", "-m", "2048", "-smp", "2",
+    # stderr qemu capture dans un fichier : indispensable pour diagnostiquer un
+    # demarrage qui echoue apres creation du socket (ex: option machine invalide)
+    qerr_path = sock + ".qemu.err"
+    qerr = open(qerr_path, "w")
+    # -L INDISPENSABLE : sinon qemu cherche ses roms dans /usr/share/qemu (absent
+    # du conteneur CI) -> il cree le socket serial puis meurt (rc=1, romfile
+    # "efi-virtio.rom"/"kvmvapic.bin" introuvable). Reproduit en local.
+    qemu_data = next((d for d in (os.path.join(TROOT, "usr/share/qemu"),
+                                  "/usr/share/qemu", "/usr/share/qemu-kvm")
+                      if os.path.isdir(d)), None)
+    cmd = [qemu] + (["-L", qemu_data] if qemu_data else []) + [
+        "-machine", "q35,smm=on", "-m", "2048", "-smp", "2",
         # pflash "secure" requis par OVMF secboot (protection du varstore), OK en TCG
         "-global", "driver=cfi.pflash01,property=secure,value=on",
         "-drive", "if=pflash,format=raw,readonly=on,file=" + code_fd,
@@ -156,11 +166,25 @@ def boot_once(qemu, code_fd, vars_fd, iso, sock, timeout, extra_append=""):
         "-display", "none", "-vga", "none",
         "-serial", "unix:%s,server,nowait" % sock,
         "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0",
-    ], env=tool_env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    ]
+    proc = subprocess.Popen(cmd, env=tool_env(), stdout=qerr, stderr=qerr)
     try:
         if not wait_sock(sock, proc, timeout=60):
-            return None, proc, "pas de socket serial"
-        ser = Serial(sock)
+            tail = ""
+            try:
+                tail = open(qerr_path).read()[-500:]
+            except OSError:
+                pass
+            return None, proc, "pas de socket serial (qemu rc=%s) stderr: %s" % (proc.poll(), tail)
+        try:
+            ser = Serial(sock)
+        except RuntimeError as e:
+            tail = ""
+            try:
+                tail = open(qerr_path).read()[-500:]
+            except OSError:
+                pass
+            return None, proc, "%s (qemu rc=%s) stderr: %s" % (e, proc.poll(), tail)
         end = time.time() + timeout
         while time.time() < end:
             if proc.poll() is not None:

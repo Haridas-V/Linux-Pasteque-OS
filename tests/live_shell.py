@@ -131,10 +131,12 @@ def wait_sock(path, proc, tries=40, timeout=None):
     if timeout is not None:
         tries = max(1, int(timeout / 0.5))
     for _ in range(tries):
-        if os.path.exists(path):
-            return True
+        # process mort en premier : un fichier socket residuel ne doit pas faire
+        # croire que le socket est utilisable (QEMU peut mourir apres le bind)
         if proc.poll() is not None:
             return False
+        if os.path.exists(path):
+            return True
         time.sleep(0.5)
     return False
 

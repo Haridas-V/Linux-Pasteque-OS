@@ -524,6 +524,11 @@ def test_sb_boot_test_real():
     assert "verify_sb_on" in src, "le varstore doit etre re-lu pour exiger SecureBoot=ON (anti varstore vide)"
     assert '"--add-db", DB_GUID, der' in src, "virt-fw-vars 24.x exige --add-db GUID FILE (nargs=2)"
     assert "enroll-redhat" in src, "repli varstore vierge: cles MS enroulees automatiquement"
+    # regression reproduite en local : sans -L, qemu meurt apres avoir cree le socket
+    # serial (roms introuvables) -> RuntimeError socket indisponible en CI
+    assert '"-L", qemu_data' in src, "sb_boot_test doit passer -L <datadir qemu> (roms kvmvapic/efi-*)"
+    assert "q35,smm=on" in src, "machine q35 avec SMM requis par OVMF secboot"
+    assert "cfi.pflash01,property=secure,value=on" in src, "pflash secure requis par OVMF secboot"
 
 
 def test_test_suites_exit_nonzero_on_failure():
