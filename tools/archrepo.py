@@ -9,10 +9,14 @@ system is then installed by pacman inside a chroot (see build_sandbox.py).
 import io
 import os
 import re
+import sys
 import tarfile
 import urllib.request
 
 import zstandard
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import netutil as _net  # HTTP avec retry+backoff (transitoires 5xx vus en CI)
 
 MIRROR = os.environ.get("ARCH_MIRROR", "https://geo.mirror.pkgbuild.com")
 REPOS = ["core", "extra", "multilib"]
@@ -22,14 +26,9 @@ _dctx = zstandard.ZstdDecompressor()
 
 
 def http_get(url, dest=None):
-    req = urllib.request.Request(url, headers={"User-Agent": "pasteque-build/1.0"})
-    with urllib.request.urlopen(req, timeout=300) as r:
-        data = r.read()
-    if dest:
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        with open(dest, "wb") as f:
-            f.write(data)
-    return data
+    # retry + backoff exponentiel integre (5xx transitoires), ecriture atomique .part,
+    # RuntimeError franche si tous les essais echouent — voir tools/netutil.py
+    return _net.http_get(url, dest=dest)
 
 
 def load_db(repo, cache_dir):

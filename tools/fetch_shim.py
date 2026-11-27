@@ -12,18 +12,14 @@ import tempfile
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import netutil as _net  # HTTP avec retry+backoff (transitoires 5xx vus en CI)
 REPO = os.path.dirname(HERE)
 POOL = "https://archive.ubuntu.com/ubuntu/pool/main/s/shim-signed/"
 
 
 def fetch(url, dest, timeout=300):
-    req = urllib.request.Request(url, headers={"User-Agent": "pasteque-build/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as r, open(dest, "wb") as f:
-        while True:
-            c = r.read(1 << 20)
-            if not c:
-                break
-            f.write(c)
+    _net.http_get(url, dest=dest, timeout=timeout)   # retry+backoff, .part atomique, echec franc
 
 
 
@@ -102,7 +98,7 @@ def main():
         print("[shim] déjà présent, skip")
         return
     print("[shim] liste du pool Ubuntu...", flush=True)
-    html = urllib.request.urlopen(urllib.request.Request(POOL, headers={"User-Agent": "pasteque-build/1.0"}), timeout=60).read().decode()
+    html = _net.http_get(POOL, timeout=60).decode()
     debs = re.findall(r'href="(shim-signed_[^"]+_amd64\.deb)"', html)
     if not debs:
         raise RuntimeError("aucun .deb shim-signed trouvé dans le pool")

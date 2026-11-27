@@ -770,6 +770,17 @@ def test_fetch_url_retry():
             pass
     bs = open(os.path.join(REPO, "tools/build_sandbox.py"), encoding="utf-8").read()
     assert "fetch_url_retry(spec[\"src\"], tarball)" in bs, "step_aur doit utiliser fetch_url_retry"
+    # tous les fetchs HTTP du build passent par netutil (retry+backoff) :
+    # plus aucun urlopen brut hors netutil.py et le wrapper retry de fetch_extras.py
+    assert os.path.exists(os.path.join(REPO, "tools/netutil.py")), "tools/netutil.py requis"
+    for tool in ("archrepo.py", "fetch_deb_tools.py", "fetch_shim.py"):
+        src = open(os.path.join(REPO, "tools", tool), encoding="utf-8").read()
+        assert "import netutil" in src, "%s doit utiliser netutil (retry+backoff)" % tool
+    for tool in ("archrepo.py", "fetch_deb_tools.py", "fetch_shim.py"):
+        src = open(os.path.join(REPO, "tools", tool), encoding="utf-8").read()
+        # plus de definition locale d'un http_get/fetch avec urlopen brut
+        assert "urllib.request.urlopen" not in src, \
+            "%s a encore un urlopen brut sans retry" % tool
 
 
 def test_wait_sock_call_sites_compat():

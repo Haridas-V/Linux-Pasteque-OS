@@ -14,10 +14,13 @@ import lzma
 import os
 import re
 import shutil
+import sys
 import tarfile
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import netutil as _net  # HTTP avec retry+backoff (transitoires 5xx vus en CI)
 ROOT = os.path.join(HERE, "root")
 WORK = os.path.join(HERE, ".aptwork")
 
@@ -40,14 +43,9 @@ DEFAULT_PACKAGES = [
 
 
 def http_get(url, dest=None):
-    req = urllib.request.Request(url, headers={"User-Agent": "pasteque-build/1.0"})
-    with urllib.request.urlopen(req, timeout=300) as r:
-        data = r.read()
-    if dest:
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        with open(dest, "wb") as f:
-            f.write(data)
-    return data
+    # retry + backoff exponentiel integre, ecriture atomique .part, echec franc
+    # si tous les essais echouent — voir tools/netutil.py
+    return _net.http_get(url, dest=dest)
 
 
 def load_index():
