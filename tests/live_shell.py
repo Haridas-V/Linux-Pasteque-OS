@@ -514,12 +514,14 @@ printf 'set timeout=1\\nserial --speed=115200\\nterminal_output console serial\\
     out3, rc3 = ser.run("chroot /newroot/mnt/target /usr/local/bin/pasteque-secureboot-install /boot/efi", timeout=120)
     rep.check("install-sb-chaine-esp", rc3 == 0 and "OK: chaîne Secure Boot signée" in out3,
               out3[-300:] if rc3 else "")
-    out4, rc4 = ser.run("cd /newroot/mnt/target/boot/efi/EFI/BOOT && sha256sum -c /usr/share/pasteque/sb/SHA256SUMS 2>&1; echo RC=$?", timeout=60)
-    rep.check("install-sb-sha256-esp", rc4 == 0 and "RC=0" in out4, out4[-300:])
+    # sommes du BUILD lues dans la CIBLE (le shell d'install est l'initramfs [rootfs ~]#,
+    # /usr/share/pasteque/sb n'y existe pas -> chemins /newroot/mnt/target/...)
+    out4, rc4 = ser.run("cd /newroot/mnt/target/boot/efi/EFI/BOOT && sha256sum -c /newroot/mnt/target/usr/share/pasteque/sb/SHA256SUMS 2>&1; echo RC=$?", timeout=60)
+    rep.check("install-sb-sha256-esp", rc4 == 0 and "RC=0" in out4 and ": OK" in out4, out4[-300:])
     out5, rc5 = ser.run("sha256sum /newroot/mnt/target/boot/efi/EFI/pasteque/grubx64.efi /newroot/mnt/target/boot/efi/EFI/BOOT/grubx64.efi 2>&1", timeout=60)
-    toks5 = out5.split()
+    hashes5 = re.findall(r"([0-9a-f]{64})  /newroot/mnt/target/boot/efi/EFI/(?:pasteque|BOOT)/grubx64\.efi", out5)
     rep.check("install-sb-grub-distro-remplace-par-signe",
-              rc5 == 0 and len(toks5) >= 4 and toks5[0] == toks5[2],
+              rc5 == 0 and len(hashes5) == 2 and hashes5[0] == hashes5[1],
               out5[-300:])
     ser.run("sync", timeout=60)
     proc.kill()
