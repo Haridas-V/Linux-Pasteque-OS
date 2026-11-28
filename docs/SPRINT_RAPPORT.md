@@ -138,3 +138,14 @@ en liens vers `/usr/lib/modules/<kv>/vmlinuz`, initramfs linux **et** LTS prése
 Secure Boot : `SB_POSITIVE_OK SB_NEGATIVE_OK` (`PASTEQUE-SECUREBOOT: 1`, 0 `module verification failed`).
 ISO : 5817 MiB, `ETCHER_COMPATIBLE`, sha256. Artefacts : `gh run download 46034672263 -n pasteque-iso` / `-n test-logs`.
 Le run intermédiaire 46018918568 est resté `failure` (FAILS=2 sur les nouveaux checks) jusqu'au fix — aucun masquage.
+
+## Mise à jour issue « Secure Boot vrai matériel » (runs #73-#76) — run #76 (46080919744, 3bf5937) SUCCESS ✅
+Cause racine de l'écart VM vs réel : à l'installation, le module `bootloader` de Calamares écrit un
+`grubx64.efi` **non signé** sur l'ESP — un vrai firmware SB le rejette (la live USB, elle, a toute la
+chaîne signée et passe en OVMF : `SB_POSITIVE_OK SB_NEGATIVE_OK`).
+Correctifs : chaîne EFI signée embarquée dans l'airootfs (`/usr/share/pasteque/sb/` + SHA256SUMS, build
+STOPPE si non signé) ; `shellprocess` déplacé après `bootloader`/`grubcfg` ; `pasteque-secureboot-install`
+installe shim MS (BOOTX64.EFI) + grub signé (EFI/BOOT + EFI/<vendor>) + MokManager + entrée efibootmgr,
+puis `sha256sum -c` fatal. Preuves run #76 : `install-sb-chaine-esp` / `install-sb-sha256-esp` /
+`install-sb-grub-distro-remplace-par-signe` PASS, `FAILS=0`, SB live OK. Artefacts : `gh run download 46080919744 -n pasteque-iso`.
+Reste à valider sur vrai PC (liste matérielle) : enrôler le MOK, SB=ON, booter live USB **et** disque installé.

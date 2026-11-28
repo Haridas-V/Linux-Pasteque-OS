@@ -231,3 +231,12 @@ PASTEQUE-SECUREBOOT utilise desormais securityfs d'abord, puis l'efivar EFI en r
   * tests : 44 unitaires PASS (test fonctionnel réel du script : ESP simulée, sommes fausses -> exit 1)
     + 3 checks live VM (install-sb-chaine-esp / -sha256-esp / -grub-distro-remplace-par-signe).
 - Validation locale en cours : rebuild ISO avec le step_iso réorganisé -> vérifier /usr/share/pasteque/sb dans le sfs.
+
+## Run #76 (46080919744, 3bf5937) : SUCCESS — issue "Secure Boot vrai matériel" corrigée et prouvée en VM
+- 44 tests unitaires PASS ; chaîne EFI signée embarquée dans l'airootfs (/usr/share/pasteque/sb + SHA256SUMS) ;
+  noyaux ISO signés vérifiés ; 12982/12982 modules ; ISO 5817 MiB
+- BOOT_OK ; USB_BOOT_OK+USB_UEFI_BOOT_OK ; live FAILS=0
+- NOUVEAUX checks PASS : install-sb-chaine-esp, install-sb-sha256-esp, install-sb-grub-distro-remplace-par-signe
+  (la cible installée reçoit shim MS en BOOTX64.EFI + grub signé, vérifié sha256sum -c)
+- SB live : SB_POSITIVE_OK SB_NEGATIVE_OK (PASTEQUE-SECUREBOOT: 1, 0 module verification failed)
+- Run #75 avait FAILS=2 sur mes propres checks (mauvais root initramfs + parsing) -> corrigé dans 3bf5937 ; l'échec est resté visible.
