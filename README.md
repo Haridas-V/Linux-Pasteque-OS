@@ -56,11 +56,27 @@ python3 tests/usb_boot_test.py --uefi out/pasteque-dev.iso # flash Etcher simul�
 ```
 
 Résultats vérifiés : `boot-bios-chargeur` PASS, `boot-uefi-chargeur` PASS,
-batterie live **30 PASS / 0 FAIL**, `install-finalize-grub` PASS,
+batterie live **PASS / 0 FAIL**, `install-finalize-grub` PASS,
 `boot-disque-installe` PASS (login depuis /dev/vda), `USB_BOOT_OK` +
-`USB_UEFI_BOOT_OK` — voir `tests/artifacts/20261122-174330-liveonly/` et
-`tests/artifacts/20261122-182328/`, et le tableau dans
+`USB_UEFI_BOOT_OK` — voir le dernier run CI vert (ex. #76, `46080919744`) et
 [docs/POINTS_A_VALIDER_EN_MATERIEL.md](docs/POINTS_A_VALIDER_EN_MATERIEL.md).
+
+### Avec GNOME Boxes « Machines » / virt-manager (QEMU + OVMF, comme ici)
+
+Oui — testé en local avec exactement la configuration d'une VM Boxes
+(`q35` + OVMF + ISO en CD SATA/AHCI + disque virtio 20 Go) sur l'ISO courante :
+
+- **BIOS (SeaBIOS)** : `Booting from DVD/CD...` → ISOLINUX charge
+  `vmlinuz-linux` + `initramfs-linux.img` → live OK (`mounted successfully`,
+  `Reached target`). Capture : `screen-bios`.
+- **UEFI (OVMF, mode par défaut de Boxes)** : GRUB `Booting 'Pasteque Linux (live)'`
+  → medium `PASTEQUE` monté → live OK. Capture : `screen-uefi`.
+
+Conseils pour Boxes : ISO personnalisée, **UEFI** recommandé, **≥ 4 Go de RAM**,
+2 CPU ; Secure Boot est OFF par défaut dans Boxes → la live boot sans enrôlement
+(avec SB activé en VM, enrôler la clé comme dans `tests/sb_boot_test.py`).
+L'installation sur le disque virtuel fonctionne (Calamares → disque virtio,
+testé en CI : `boot-disque-installe` PASS).
 
 ## Sous-agents (Mistral Agents SDK)
 
