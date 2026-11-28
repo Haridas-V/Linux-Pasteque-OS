@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=🎨 Personnalisation
+Comment=App Pastèque native
+Exec=/usr/local/bin/pasteque-personnalise
+Icon=Settings
+Terminal=false
+Categories=preferences-desktop-theme;

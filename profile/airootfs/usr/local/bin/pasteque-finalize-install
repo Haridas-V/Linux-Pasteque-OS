@@ -1,0 +1,102 @@
+#!/bin/bash
+# Exécuté par Calamares (dans la cible) à la fin de l'installation.
+set -e
+# sécurité : root verrouillé, sudo pour wheel, pare-feu actif, ssh non installé
+passwd -l root || { echo "[pasteque-finalize] ERREUR: verrouillage de root" >&2; exit 1; }
+mkdir -p /etc/sudoers.d
+echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/010-pasteque-wheel
+chmod 440 /etc/sudoers.d/010-pasteque-wheel
+systemctl enable firewalld || { echo "[pasteque-finalize] ERREUR: activation firewalld" >&2; exit 1; }
+# plus d'autologin live sur le système installé
+rm -f /etc/sddm.conf.d/10-pasteque.conf
+cat > /etc/sddm.conf.d/10-pasteque.conf <<'EOC'
+[General]
+DisplayServer=wayland
+EOC
+systemctl enable sddm || { echo "[pasteque-finalize] ERREUR: activation sddm (pas de session graphique)" >&2; exit 1; }
+# hostname + locale FR
+hostnamectl set-hostname pasteque 2>/dev/null || echo pasteque > /etc/hostname
+locale-gen || { echo "[pasteque-finalize] ERREUR: locale-gen (locale FR manquante)" >&2; exit 1; }
+# services Pastèque
+systemctl enable pasteque-liveuser pasteque-extras pasteque-steamlibs pasteque-bootcheck || { echo "[pasteque-finalize] ERREUR: activation services pasteque" >&2; exit 1; }
+systemctl enable pasteque-update.timer pasteque-steamlibs.timer || { echo "[pasteque-finalize] ERREUR: activation timers pasteque" >&2; exit 1; }
+# initramfs de la cible : preset "installé" (hooks standard + pasteque_mods),
+# pas le preset archiso de la live
+cat > /etc/mkinitcpio.conf <<'EOC'
+MODULES=()
+BINARIES=()
+FILES=()
+HOOKS=(base udev modconf block pasteque_mods keyboard filesystems)
+COMPRESSION="xz"
+EOC
+rm -f /etc/mkinitcpio.d/archiso.preset
+cat > /etc/mkinitcpio.d/linux.preset <<'EOC'
+ALL_config='/etc/mkinitcpio.conf'
+ALL_kver='/boot/vmlinuz-linux'
+PRESETS=('default')
+default_image="/boot/initramfs-linux.img"
+default_kver="/boot/vmlinuz-linux"
+EOC
+mkdir -p /etc/pacman.d/gnupg
+# porte-cle Arch : INDISPENSABLE (pacman.conf a SigLevel=Required) -> erreur fatale
+if ! timeout 60 pacman-key --init; then echo "[pasteque-finalize] ERREUR pacman-key --init" >&2; exit 1; fi
+if ! timeout 120 pacman-key --populate archlinux; then echo "[pasteque-finalize] ERREUR pacman-key --populate archlinux" >&2; exit 1; fi
+# si chiffrement LUKS choisi dans Calamares (/etc/crypttab present) : hook encrypt + cryptodisk
+if [ -s /etc/crypttab ]; then
+    sed -i 's/HOOKS=(base udev modconf block pasteque_mods keyboard filesystems)/HOOKS=(base udev modconf block keyboard encrypt pasteque_mods filesystems)/' /etc/mkinitcpio.conf
+    sed -i 's/^#\?GRUB_ENABLE_CRYPTODISK=.*/GRUB_ENABLE_CRYPTODISK=y/' /etc/default/grub
+fi
+# preset LTS aussi (sinon mkinitcpio -P ignore le noyau LTS de secours)
+cat > /etc/mkinitcpio.d/linux-lts.preset <<'EOC'
+ALL_config='/etc/mkinitcpio.conf'
+ALL_kver='/boot/vmlinuz-lts'
+PRESETS=('default')
+default_image="/boot/initramfs-lts.img"
+default_kver="/boot/vmlinuz-lts"
+EOC
+# /boot est EXCLU du squashfs live (les noyaux de boot vivent dans iso/boot/x86_64) :
+# dans la cible copiee par Calamares, /boot est donc vide -> recreer les liens noyaux
+# standards depuis /usr/lib/modules (present dans la sfs). Sinon mkinitcpio -P echoue
+# ("-k /boot/vmlinuz-linux must be readable") et l'installation reelle rate.
+main_kv=""
+lts_kv=""
+for kv in $(ls /usr/lib/modules 2>/dev/null); do
+    case "$kv" in
+        *-lts*) if [ -z "$lts_kv" ]; then lts_kv="$kv"; fi ;;
+        *) if [ -z "$main_kv" ]; then main_kv="$kv"; fi ;;
+    esac
+done
+if [ -n "$main_kv" ]; then
+    ln -sfn "/usr/lib/modules/$main_kv/vmlinuz" /boot/vmlinuz-linux
+fi
+if [ -n "$lts_kv" ]; then
+    ln -sfn "/usr/lib/modules/$lts_kv/vmlinuz" /boot/vmlinuz-lts
+fi
+if [ -n "$main_kv" ] && [ ! -r /boot/vmlinuz-linux ]; then
+    echo "[pasteque-finalize] ERREUR: /boot/vmlinuz-linux non recree (noyau absent de la cible)" >&2
+    exit 1
+fi
+# modules renommes .ko.zst -> .ko signes pendant le build (Secure Boot) : l'index kmod
+# embarque reference encore les .ko.zst -> regenerer, ECHEC FATAL (sinon modules
+# introuvables au boot de la cible et erreurs depmod en cascade)
+depmod -a || { echo "[pasteque-finalize] ERREUR depmod -a" >&2; exit 1; }
+# initramfs : ECHEC FATAL (sinon boot casse apres mise a jour noyau)
+mkinitcpio -P || { echo "[pasteque-finalize] ERREUR mkinitcpio -P" >&2; exit 1; }
+# menu GRUB avec les autres OS detectes (dual-boot) ; os-prober renvoie aussi
+# non-nul quand AUCUN autre OS n'est present -> avertissement, pas fatal, pas silencieux
+if ! os-prober > /tmp/pasteque-osprober.log 2>&1; then
+    echo "[pasteque-finalize] os-prober: aucun autre OS ou erreur (log: /tmp/pasteque-osprober.log)" >&2
+fi
+# /boot/grub n'existe pas dans la cible copiee (le squashfs exclut /boot) :
+# grub-mkconfig ecrirait /boot/grub/grub.cfg.new -> "No such file or directory"
+mkdir -p /boot/grub || { echo "[pasteque-finalize] ERREUR: mkdir /boot/grub" >&2; exit 1; }
+grub-mkconfig -o /boot/grub/grub.cfg || { echo "[pasteque-finalize] ERREUR grub-mkconfig" >&2; exit 1; }
+# installer les extras pour l'utilisateur créé
+/usr/bin/python3 /usr/local/bin/pasteque-install-extras || { echo '[pasteque-finalize] ERREUR install-extras (applis offline manquantes)' >&2; exit 1; }
+# entrée de menu pour le gestionnaire d'applications Pastèque
+update-desktop-database /usr/share/applications 2>/dev/null || true
+# Secure Boot du système installé : chaîne EFI signée sur l'ESP (Calamares/bootloader
+# a écrit un grubx64.efi NON signé ; un vrai firmware SB le rejette). shellprocess
+# tourne APRES bootloader dans settings.conf, donc cette copie gagne.
+/usr/local/bin/pasteque-secureboot-install /boot/efi || { echo "[pasteque-finalize] ERREUR: installation chaîne SB sur l'ESP" >&2; exit 1; }
+echo "[pasteque-finalize] OK"

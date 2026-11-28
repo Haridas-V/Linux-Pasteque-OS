@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=⏱️ Minuteur
+Comment=App Pastèque native
+Exec=/usr/local/bin/pasteque-minuteur
+Icon=Utility
+Terminal=false
+Categories=appointment-soon;

@@ -1,0 +1,66 @@
+name: build-iso
+on:
+  push:
+    branches: [ main, vibe/* ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      # Le build rootless a besoin des user-namespaces (unshare -rmpf chroot), bloqués
+      # sur les runners hébergés : on tourne tout dans un conteneur trixie privilégié,
+      # dont les libs correspondent à celles des debs extraits dans tools/root.
+      - name: Tests unitaires (rapides, sans VM, sans root)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-yaml gnupg openssl
+          python3 tests/test_units.py
+
+      - name: Build ISO + tests VM (conteneur trixie privilégié)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PASTEQUE_GPG_KEY: ${{ secrets.PASTEQUE_GPG_KEY }}       # cle privee ASCII (optionnel)
+          PASTEQUE_GPG_PASSPHRASE: ${{ secrets.PASTEQUE_GPG_PASSPHRASE }}   # evite le rate limit 403 de l'API GitHub (extras Proton-GE/Heroic/Teams)
+        run: |
+          docker run --rm --privileged -e GITHUB_TOKEN -v "$PWD:/src" -w /src debian:trixie-slim bash -c '
+            set -e   # AUCUN masquage : un test obligatoire qui echoue fait echouer le workflow
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends python3 python3-pil python3-zstandard ca-certificates e2fsprogs ovmf python3-virt-firmware
+            python3 tools/fetch_deb_tools.py
+            python3 tools/build_sandbox.py all
+            python3 tools/check_isohybrid.py out/*.iso
+            # sha256 + signature GPG AVANT les tests : l artefact est uploadé meme si un test echoue
+            ISO=$(ls out/*.iso | head -1)
+            if [ -n "${PASTEQUE_GPG_KEY:-}" ]; then
+              bash tools/sign_iso.sh "$ISO"
+            else
+              (cd "$(dirname "$ISO")" && sha256sum "$(basename "$ISO")" > "$(basename "$ISO").sha256"); echo "[sign] pas de cle GPG secret -> sha256 seul"
+            fi
+            # tests obligatoires : exit non nul = echec du workflow (set -e)
+            python3 tests/run_vm_test.py --timeout 900
+            python3 tests/usb_boot_test.py --uefi --timeout 900
+            python3 tests/live_shell.py "$ISO"
+            # Secure Boot REEL : OVMF avec SB active + cle Pastèque enrôlée dans db (virt-fw-vars)
+            python3 tests/sb_boot_test.py "$ISO" work/sb/Pasteque.der --timeout 900
+          '
+      # uploads toujours executes, meme si un test a echoue (pour le diagnostic)
+      - name: Upload logs de tests (artifact léger)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-logs
+          path: tests/artifacts/**
+          if-no-files-found: warn
+
+      - name: Upload ISO (artifact)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pasteque-iso
+          path: |
+            out/*.iso
+            out/*.sha256
+            out/*.asc
+          if-no-files-found: warn

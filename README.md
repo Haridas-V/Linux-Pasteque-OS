@@ -1,0 +1,155 @@
+# 🍉 Pastèque Linux — édition « No Frustration »
+
+Distribution Linux **installable (ISO complète)**, dérivée d'Arch Linux, orientée
+**gaming + usage quotidien**, pensée pour être installée **une seule fois** et ne
+plus jamais nécessiter de terminal.
+
+- **Base** : Arch Linux (dépôts officiels + AUR préconfiguré), 100 % hors-ligne après installation.
+- **GPU** : stack AMD complète (Mesa RADV, Vulkan, VA-API). Pas de pilotes propriétaires NVIDIA.
+- **Session** : KDE Plasma 6 sous Wayland, préconfigurée (thème sombre, polices, icônes).
+- **Installateur** : Calamares, 4 écrans, français, clavier détecté automatiquement, effacement du disque avec confirmation explicite.
+- **Mises à jour** : silencieuses, uniquement quand la machine est au repos, avec snapshots Btrfs et rollback automatique.
+- **Surcouche anti-frustration** : indexation auto des .exe/AppImages dans le menu KDE, gestionnaire d'applications unique (retrait en 2 clics), corbeille de sauvegarde rotative, anti-cheat, bibliothèques Steam sur disques externes auto-détectées.
+
+## Build de l'ISO (une commande)
+
+Sur un hôte Arch (ou automatiquement via Docker) :
+
+```bash
+sudo ./build.sh        # -> out/pasteque-*.iso
+```
+
+Sans root (sandbox / CI), le même résultat est produit par :
+
+```bash
+python3 tools/build_sandbox.py all   # -> out/pasteque-*.iso + .sha256
+```
+
+## Flash USB avec balenaEtcher
+
+L'ISO est **hybride (isohybrid MBR + El Torito BIOS/UEFI)** : balenaEtcher la
+reconnaît nativement comme image disque.
+
+1. Télécharger `pasteque-*.iso` (build local `out/` ou artifact CI de la PR).
+2. Dans balenaEtcher : **Flash from file** → sélectionner l'ISO → choisir la clé USB → **Flash**.
+   Aucune option spéciale requise (pas besoin du mode « Unsafe » : l'ISO a une vraie table de partition MBR).
+3. Vérifier l'empreinte avant flash : `sha256sum -c pasteque-*.iso.sha256`.
+4. Booter la clé USB (UEFI ou BIOS, les deux marchent).
+
+Compatibilité vérifiée automatiquement : `python3 tools/check_isohybrid.py out/pasteque-*.iso`
+(signature MBR 0x55AA, partition bootable, El Torito BIOS+UEFI) et
+`python3 tests/usb_boot_test.py` (simule le flash Etcher : copie brute de l'ISO
+sur disque + boot QEMU depuis ce disque via le MBR).
+
+## Tests en VM (QEMU, sans KVM accepté)
+
+```bash
+python3 tests/run_vm_test.py         # boot de l'ISO, log série + captures horodatées
+```
+
+Résultats dans `tests/artifacts/<horodatage>/`. Dernier run complet (ISO 5005 Mio) :
+
+```bash
+python3 tools/check_isohybrid.py out/pasteque-dev.iso     # ETCHER_COMPATIBLE (MBR 0x55AA, part. 0x17 bootable + part. 0xEF)
+python3 tests/live_shell.py out/pasteque-dev.iso           # structure + boot BIOS CD + boot UEFI CD (OVMF) + batterie live 30/30 + install disque + boot installé
+python3 tests/usb_boot_test.py --uefi out/pasteque-dev.iso # flash Etcher simulé : boot BIOS + UEFI depuis la clé
+```
+
+Résultats vérifiés : `boot-bios-chargeur` PASS, `boot-uefi-chargeur` PASS,
+batterie live **PASS / 0 FAIL**, `install-finalize-grub` PASS,
+`boot-disque-installe` PASS (login depuis /dev/vda), `USB_BOOT_OK` +
+`USB_UEFI_BOOT_OK` — voir le dernier run CI vert (ex. #76, `46080919744`) et
+[docs/POINTS_A_VALIDER_EN_MATERIEL.md](docs/POINTS_A_VALIDER_EN_MATERIEL.md).
+
+### Avec GNOME Boxes « Machines » / virt-manager (QEMU + OVMF, comme ici)
+
+Oui — testé en local avec exactement la configuration d'une VM Boxes
+(`q35` + OVMF + ISO en CD SATA/AHCI + disque virtio 20 Go) sur l'ISO courante :
+
+- **BIOS (SeaBIOS)** : `Booting from DVD/CD...` → ISOLINUX charge
+  `vmlinuz-linux` + `initramfs-linux.img` → live OK (`mounted successfully`,
+  `Reached target`). Capture : `screen-bios`.
+- **UEFI (OVMF, mode par défaut de Boxes)** : GRUB `Booting 'Pasteque Linux (live)'`
+  → medium `PASTEQUE` monté → live OK. Capture : `screen-uefi`.
+
+Conseils pour Boxes : ISO personnalisée, **UEFI** recommandé, **≥ 4 Go de RAM**,
+2 CPU ; Secure Boot est OFF par défaut dans Boxes → la live boot sans enrôlement
+(avec SB activé en VM, enrôler la clé comme dans `tests/sb_boot_test.py`).
+L'installation sur le disque virtuel fonctionne (Calamares → disque virtio,
+testé en CI : `boot-disque-installe` PASS).
+
+## Sous-agents (Mistral Agents SDK)
+
+Un orchestrateur + 4 sous-agents dans [`agents/`](agents/) (build ISO, tests VM,
+docs, revue de PR). Déployé comme workflow managé Mistral :
+`pasteque-orchestrateur` (voir
+[Studio](https://console.mistral.ai/build/workflows/deployments/pasteque-orchestrateur)),
+build depuis `agents/Dockerfile` sur la branche `vibe/pasteque-os-68736a`.
+Test local sans clé API : `cd agents && python3 test_local.py`.
+
+## Arborescence
+
+```
+build.sh                  # build reproductible en UNE commande (mkarchiso)
+profile/                  # profil archiso : packages.x86_64, pacman.conf, airootfs/ (tout le système)
+packages-aur/             # paquets AUR embarqués (calamares compilé au build)
+calamares/                # référence de la config Calamares (aussi dans profile/airootfs/etc/calamares)
+tools/                    # build_sandbox.py (build rootless), fetch_deb_tools.py, archrepo.py, chroot.sh,
+                          # patch_initcpio.py, fetch_extras.py (Proton-GE, Wine-GE, Heroic, Teams)
+tests/                    # run_vm_test.py + artifacts/
+docs/                     # ARCHITECTURE.md, MAINTENANCE.md, POINTS_A_VALIDER_EN_MATERIEL.md
+.github/workflows/        # CI : build de l'ISO en artifact
+```
+
+## 🍉 Gestionnaire Pastèque (hub central, modulaire)
+
+Une app centrale lance tout : **🍉 Gestionnaire Pastèque** (`pasteque-hub`) — vue d'ensemble,
+**mises à jour manuelles** (liste + « Installer maintenant », snapshot Btrfs auto — `AUTO_UPDATE=0` par défaut),
+applications (recherche globale pacman+Flatpak), jeux (+ **profils par jeu** : env/GameMode/nice),
+🍉 Fortnite 1-clic, ⚡ priorités des processus, 📊 monitoring, 🧪 **benchmark** (résultats mesurés + historique JSON exportable),
+🎨 personnalisation (thèmes, accent, fonds, panneau, police + **profils d'apparence sauvegardés**), 🛡️ **pare-feu graphique**,
+🔍 **diagnostic système** (rapport exportable), corbeille/sauvegardes, 🪄 générateur d'apps FR.
+Démarrage Pastèque avec icône pastèque (thème GRUB custom).
+
+## Fonctionnalités embarquées (ISO ~6 Go, clé de 30 Go OK)
+
+- **Mise à jour système en GUI** : bouton « Mettre à jour maintenant » dans le gestionnaire
+  (onglet Réglages) + mises à jour auto au repos, snapshots Btrfs + rollback auto.
+- **Tour de bienvenue** au premier boot (5 écrans, une seule fois).
+- **Proton-GE par défaut pour tous les jeux Steam** (1 clic dans l'onglet Jeux).
+- **Noyau LTS de secours** : entrée GRUB dédiée si le noyau principal casse.
+- **zram + earlyoom** : anti-freeze sur les petites configs.
+- **Dual-boot** : « Installer à côté » de Windows/Mint (détection auto via os-prober, menu GRUB partagé).
+- **Chiffrement LUKS** : case à cocher dans l'installateur (hook `encrypt` + GRUB cryptodisk auto).
+- **KDE Connect** (téléphone↔PC), **Blueman** (Bluetooth/manettes), **Flameshot** (captures), **Disques** (GUI).
+- ISO nommée `pasteque-1.0.iso`.
+- **Signature** : SHA256 toujours + signature GPG `.asc` (voir `tools/sign_iso.sh` / `tools/verify_iso.sh`).
+- **Secure Boot** : chaîne shim-Microsoft + clé MOK Pastèque embarquée (enrôlement 1 fois :
+  `sudo mokutil --import /usr/share/pasteque/mok/Pasteque.der`) — guide `docs/SECURE_BOOT.md`.
+- Tout le reste : voir ci-dessous.
+
+## Apps natives + générateur d'apps FR + personnalisation
+
+- **Apps embarquées** : 📝 Notes rapides, ⏱️ Minuteur, 🐍 **Snake** (record sauvegardé), 📊 Monitoring stylé, 🎮 Lanceur de jeux — chacune testée (`--smoke`).
+- **Générateur d'apps en français** : `pasteque-genere "fais-moi une app qui note mes courses"` → app native PyQt6 générée (fenêtre + logique + sauvegarde JSON + entrée menu), code lisible/modifiable. Démo : `pasteque-genere --smoke`.
+- **🎨 Personnalisation** (panneau visible) : thème sombre/clair, couleur d'accent, 3 fonds d'écran Pastèque générés au build, disposition du panneau, taille de police — 100 % via les outils KDE officiels.
+- Guide : [docs/APPS_ET_GENERATEUR.md](docs/APPS_ET_GENERATEUR.md)
+
+## Jeux en ligne (Fortnite, Apex, …)
+
+Tout est embarqué : **Heroic** (Epic/GOG) + **Proton-GE** par défaut + avertisseur
+anti-cheat. Fortnite est jouable en ligne sous Linux (EAC compatible Proton).
+Guide : [docs/JEUX_EN_LIGNE.md](docs/JEUX_EN_LIGNE.md) — vérifie un jeu avec
+`pasteque-anticheat fortnite`.
+
+## Personnalisation post-installation
+
+Tout est réversible et documenté dans [docs/MAINTENANCE.md](docs/MAINTENANCE.md),
+via le fichier central **`/etc/pasteque/pasteque.conf`** (niveau d'immuabilité,
+comportement des mises à jour, taille de la corbeille de sauvegarde, indexation,
+anti-cheat) et l'application **Gestionnaire d'applications Pastèque** (curseur
+d'immuabilité inclus).
+
+## Licence
+
+Code : MIT. Les logiciels embarqués gardent leurs licences respectives.

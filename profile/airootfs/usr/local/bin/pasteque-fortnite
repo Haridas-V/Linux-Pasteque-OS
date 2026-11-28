@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+"""Fortnite en un clic — Pastèque Linux.
+
+GUI avec gros bouton JOUER + CLI :
+  pasteque-fortnite play     -> configure Proton-GE + lance Fortnite via Heroic
+  pasteque-fortnite setup    -> lie Proton-GE dans Heroic + écrit la config du jeu
+  pasteque-fortnite status   -> état (Heroic, Proton-GE, anti-cheat, installé ?)
+  pasteque-fortnite --smoke  -> test headless (CI/live)
+
+Principe : Fortnite (Epic) est jouable EN LIGNE sous Linux via Proton-GE
+(Easy Anti-Cheat compatible Proton depuis déc. 2022). Heroic est embarqué dans
+l'ISO (hors-ligne) ; on branche notre Proton-GE embarqué dans Heroic.
+"""
+import glob
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+HOME = os.path.expanduser("~")
+HEROIC_BIN = "/usr/local/bin/heroic"
+HEROIC_CFG = os.path.join(HOME, ".config/heroic")
+GAMES_CFG = os.path.join(HEROIC_CFG, "gamesConfig.json")
+PROTON_DIR = "/usr/share/pasteque/proton-ge"
+HEROIC_PROTON_DIR = os.path.join(HEROIC_CFG, "tools/proton")
+DB = os.environ.get("PASTEQUE_ANTICHEAT_DB", "/usr/share/pasteque/anticheat-db.json")
+FORTNITE_APP = "Fortnite"
+
+
+def proton_ge_latest():
+    ds = sorted(glob.glob(os.path.join(PROTON_DIR, "*")), reverse=True)
+    return ds[0] if ds else None
+
+
+def anticheat_ok():
+    try:
+        d = json.load(open(DB))
+        return d.get("games", {}).get("fortnite", {}).get("status") == "OK"
+    except Exception:
+        return False
+
+
+def heroic_present():
+    return os.path.exists(HEROIC_BIN)
+
+
+def fortnite_installed():
+    # Heroic garde le cache de la biblio Epic ; appName Fortnite présent => installé
+    for p in [os.path.join(HEROIC_CFG, "store_cache/epic_library.json"),
+              os.path.join(HEROIC_CFG, "store_cache/legendary_library.json")]:
+        try:
+            if FORTNITE_APP.lower() in open(p, errors="replace").read().lower():
+                return True
+        except OSError:
+            pass
+    # sinon : dossier d'installation
+    for p in glob.glob(os.path.join(HOME, "Games/Heroic/Fortnite*")) + \
+             glob.glob("/opt/pasteque/games/Fortnite*"):
+        if os.path.isdir(p):
+            return True
+    return False
+
+
+def setup():
+    """Branche le Proton-GE embarqué dans Heroic et force sa sélection pour Fortnite."""
+    pe = proton_ge_latest()
+    if not pe:
+        return False, "Proton-GE absent de /usr/share/pasteque/proton-ge (lancez pasteque-install-extras)"
+    os.makedirs(HEROIC_PROTON_DIR, exist_ok=True)
+    link = os.path.join(HEROIC_PROTON_DIR, "GE-Proton-latest")
+    if not os.path.lexists(link):
+        os.symlink(pe, link)
+    # config du jeu : wineVersion proton GE-Proton-latest
+    os.makedirs(HEROIC_CFG, exist_ok=True)
+    try:
+        cfg = json.load(open(GAMES_CFG)) if os.path.exists(GAMES_CFG) else {}
+    except Exception:
+        cfg = {}
+    entry = cfg.setdefault(FORTNITE_APP, {})
+    entry["wineVersion"] = {"name": "GE-Proton-latest", "type": "proton"}
+    entry["enableEsync"] = True
+    json.dump(cfg, open(GAMES_CFG, "w"), indent=1)
+    return True, "Proton-GE branché dans Heroic + Fortnite réglé sur GE-Proton-latest"
+
+
+def status():
+    pe = proton_ge_latest()
+    return {
+        "heroic": heroic_present(),
+        "proton_ge": os.path.basename(pe) if pe else None,
+        "anticheat_ok": anticheat_ok(),
+        "installe": fortnite_installed(),
+    }
+
+
+def play():
+    ok, msg = setup()
+    print("[fortnite]", msg)
+    if not heroic_present():
+        print("[fortnite] Heroic absent -> installez-le (embarqué dans l'ISO : /opt/pasteque/extras/heroic)")
+        return 1
+    subprocess.Popen([HEROIC_BIN, "launch", FORTNITE_APP])
+    return 0
+
+
+def smoke():
+    st = status()
+    # en environnement de test, Heroic/proton peuvent manquer : on exige seulement
+    # que la base anti-cheat dise OK (chemin overridable par PASTEQUE_ANTICHEAT_DB)
+    assert st["anticheat_ok"], "base anti-cheat: fortnite pas OK"
+    print("smoke OK: anticheat_ok=%s heroic=%s proton=%s installé=%s" %
+          (st["anticheat_ok"], st["heroic"], st["proton_ge"], st["installe"]))
+    return 0
+
+
+def gui():
+    from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton
+    from PyQt6.QtGui import QFont
+    from PyQt6.QtCore import Qt
+
+    class F(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle("🍉 Fortnite — Pastèque Linux")
+            w = QWidget(); self.setCentralWidget(w)
+            v = QVBoxLayout(w)
+            t = QLabel("🎮 FORTNITE"); t.setFont(QFont("Sans", 28, QFont.Bold))
+            t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            v.addWidget(t)
+            self.st = QLabel(""); self.st.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            v.addWidget(self.st)
+            self.play_btn = QPushButton("▶  JOUER (Proton-GE auto)")
+            self.play_btn.setFixedHeight(64)
+            self.play_btn.setFont(QFont("Sans", 18, QFont.Bold))
+            self.play_btn.clicked.connect(self.jouer)
+            v.addWidget(self.play_btn)
+            self.heroic_btn = QPushButton("Ouvrir Heroic (installer Fortnite via Epic)")
+            self.heroic_btn.clicked.connect(lambda: subprocess.Popen([HEROIC_BIN]))
+            v.addWidget(self.heroic_btn)
+            self.cfg_btn = QPushButton("Configurer Proton-GE dans Heroic")
+            self.cfg_btn.clicked.connect(self.configurer)
+            v.addWidget(self.cfg_btn)
+            self.maj()
+            self.resize(480, 360)
+
+        def maj(self):
+            st = status()
+            self.st.setText(
+                "Heroic : %s   |   Proton-GE : %s   |   Anti-cheat EAC : %s   |   Installé : %s" % (
+                    "✅" if st["heroic"] else "❌",
+                    st["proton_ge"] or "❌",
+                    "✅ OK (en ligne marche)" if st["anticheat_ok"] else "❌",
+                    "✅" if st["installe"] else "❌ (installer via Heroic)"))
+
+        def jouer(self):
+            rc = play()
+            self.maj()
+            if rc != 0:
+                self.st.setText("Heroic manquant — ouvrez Heroic pour installer Fortnite (compte Epic).")
+
+        def configurer(self):
+            ok, msg = setup()
+            self.st.setText(("✅ " if ok else "❌ ") + msg)
+            self.maj()
+
+    app = QApplication(sys.argv)
+    m = F(); m.show()
+    return app.exec()
+
+
+def main():
+    a = sys.argv[1:]
+    if "--smoke" in a:
+        return smoke()
+    if not a:
+        return gui()
+    if a[0] == "play":
+        return play()
+    if a[0] == "setup":
+        ok, msg = setup()
+        print(("✅ " if ok else "❌ ") + msg)
+        return 0 if ok else 1
+    if a[0] == "diagnose":
+        st = status()
+        print("== Diagnostic Fortnite / Linux ==")
+        print("Heroic embarqué :", "OK" if st["heroic"] else "NON")
+        print("Proton-GE embarqué :", st["proton_ge"] or "NON")
+        print("Anti-cheat EAC (base areweanticheatyet) :", "OK compatible Proton" if st["anticheat_ok"] else "KO")
+        print("Fortnite installé (cache Heroic) :", "oui" if st["installe"] else "non")
+        # EAC réellement présent dans l'installation ?
+        eac = glob.glob(os.path.join(HOME, "Games/Heroic/**/EasyAntiCheat*", ), recursive=True) + \
+              glob.glob(os.path.join(HOME, ".wine/**/EasyAntiCheat*"), recursive=True)
+        print("Dossier EAC trouvé dans l'installation :", "oui" if eac else "non (installer d'abord via Heroic)")
+        # réseau vers les serveurs Epic (joignabilité seulement, PAS une preuve de connexion au jeu)
+        r = subprocess.run(["curl", "-sI", "--max-time", "8", "https://api.epicgames.dev"],
+                           capture_output=True, text=True)
+        print("Joignabilité api.epicgames.dev :", "OK (HTTP %s)" % (r.stdout.split()[1] if r.stdout else "?") if r.returncode == 0 else "NON (offline ?)")
+        print("NOTE honnête : la connexion réelle aux serveurs de jeu (login Epic + matchmaking)")
+        print("ne peut être vérifiée que sur machine réelle avec un compte — voir docs/POINTS_A_VALIDER_EN_MATERIEL.md")
+        return 0
+    if a[0] == "status":
+        print(json.dumps(status(), indent=1))
+        return 0
+    print(__doc__)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

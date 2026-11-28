@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=🍉 Fortnite (Epic, en ligne)
+Comment=Jouer à Fortnite en ligne sous Linux (Proton-GE + EAC, 1 clic)
+Exec=/usr/local/bin/pasteque-fortnite
+Icon=applications-games
+Terminal=false
+Categories=Game;

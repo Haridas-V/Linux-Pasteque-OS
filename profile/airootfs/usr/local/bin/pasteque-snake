@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Snake Pastèque — jeu arcade natif (flèches, score sauvegardé, meilleur score).
+--smoke : test headless de la logique (sans fenêtre)."""
+import json
+import os
+import sys
+
+SCORES = os.path.expanduser("~/.local/share/pasteque/scores/snake.json")
+W, H = 20, 15  # grille (cases)
+
+
+def best():
+    try:
+        return json.load(open(SCORES)).get("best", 0)
+    except Exception:
+        return 0
+
+
+def save_best(v):
+    os.makedirs(os.path.dirname(SCORES), exist_ok=True)
+    json.dump({"best": v}, open(SCORES, "w"))
+
+
+class Jeu:
+    """Logique pure (testable sans Qt)."""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.snake = [(W // 2, H // 2)]
+        self.dir = (1, 0)
+        self.pomme = (3, 3)
+        self.score = 0
+        self.mort = False
+
+    def tick(self):
+        if self.mort:
+            return
+        hx, hy = self.snake[0][0] + self.dir[0], self.snake[0][1] + self.dir[1]
+        if hx < 0 or hy < 0 or hx >= W or hy >= H or (hx, hy) in self.snake:
+            self.mort = True
+            return
+        self.snake.insert(0, (hx, hy))
+        if (hx, hy) == self.pomme:
+            self.score += 10
+            import random
+            while True:
+                self.pomme = (random.randrange(W), random.randrange(H))
+                if self.pomme not in self.snake:
+                    break
+        else:
+            self.snake.pop()
+
+
+def smoke():
+    g = Jeu()
+    for _ in range(5):
+        g.tick()
+    assert g.snake[0] == (W // 2 + 5, H // 2) and not g.mort
+    # mur -> mort
+    g2 = Jeu()
+    for _ in range(W):
+        g2.tick()
+    assert g2.mort
+    b = best()
+    save_best(max(b, 40))
+    assert best() >= 40
+    print("smoke OK (logique snake + scores)")
+    return 0
+
+
+def gui():
+    from PyQt6.QtWidgets import QApplication, QWidget
+    from PyQt6.QtCore import Qt, QTimer
+    from PyQt6.QtGui import QPainter, QColor, QFont
+
+    class Plateau(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle("🐍 Snake — Pastèque")
+            self.setFixedSize(W * 28, H * 28 + 40)
+            self.jeu = Jeu()
+            self.timer = QTimer(self)
+            self.timer.timeout.connect(self.boucle)
+            self.timer.start(120)
+            self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        def keyPressEvent(self, e):
+            k = e.key()
+            d = {Qt.Key.Key_Up: (0, -1), Qt.Key.Key_Down: (0, 1),
+                 Qt.Key.Key_Left: (-1, 0), Qt.Key.Key_Right: (1, 0)}.get(k)
+            if d and (d[0] != -self.jeu.dir[0] or d[1] != -self.jeu.dir[1]):
+                self.jeu.dir = d
+            elif k == Qt.Key.Key_Space and self.jeu.mort:
+                self.jeu.reset()
+
+        def boucle(self):
+            self.jeu.tick()
+            if self.jeu.mort:
+                b = best()
+                if self.jeu.score > b:
+                    save_best(self.jeu.score)
+                self.timer.stop()
+            self.update()
+
+        def paintEvent(self, e):
+            p = QPainter(self)
+            p.fillRect(0, 0, self.width(), self.height(), QColor("#101418"))
+            # pomme
+            px, py = self.jeu.pomme
+            p.fillRect(px * 28 + 4, py * 28 + 4, 20, 20, QColor("#e5484d"))
+            # serpent
+            for i, (x, y) in enumerate(self.jeu.snake):
+                p.fillRect(x * 28 + 2, y * 28 + 2, 24, 24,
+                           QColor("#46a758") if i == 0 else QColor("#2f7d42"))
+            p.setPen(QColor("#e6e6e6"))
+            p.setFont(QFont("Sans", 12, QFont.Bold))
+            p.drawText(8, H * 28 + 28,
+                       "Score : %d   |   Record : %d   |   Flèches = bouger, Espace = recommencer" %
+                       (self.jeu.score, best()))
+            if self.jeu.mort:
+                p.setFont(QFont("Sans", 20, QFont.Bold))
+                p.drawText(self.width() // 2 - 120, self.height() // 2, "💀 Partie terminée ! Espace = rejouer")
+
+    app = QApplication(sys.argv)
+    w = Plateau(); w.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(smoke() if "--smoke" in sys.argv else gui())

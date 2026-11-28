@@ -1,0 +1,2 @@
+#!/bin/bash
+exec /opt/pasteque/extras/heroic/heroic.AppImage "$@"

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Pastèque — Bienvenue
+Comment=Tour de bienvenue (une seule fois)
+Exec=/usr/local/bin/pasteque-welcome
+Icon=applications-system
+Terminal=false
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

@@ -58,7 +58,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("iso", nargs="?", default=sorted(glob.glob(os.path.join(REPO, "out/*.iso")))[-1])
     ap.add_argument("--timeout", type=int, default=600)
-    ap.add_argument("--ram", type=int, default=2048)
+    ap.add_argument("--ram", type=int, default=3072)
     ap.add_argument("--label", default="PASTEQUE")
     args = ap.parse_args()
 
@@ -105,7 +105,7 @@ def main():
             break
         time.sleep(0.5)
     assert qmp is not None, "QMP indisponible"
-    markers = ["Login", "login:", "Reached target", "Started Getty", "systemd", "Welcome"]
+    markers = ["login:", "Reached target", "Started Getty", "SDDM", "plasma", "Started Session", "KCrash", "sddm"]
     ok = False
     t0 = time.time()
     shots = 0
@@ -116,7 +116,7 @@ def main():
             data = open(serial, "rb").read().decode("utf-8", "replace")
             if len(data) != last_len:
                 last_len = len(data)
-            if any(m.lower() in data.lower() for m in ["reached target", "login:", "multi-user"]):
+            if any(m.lower() in data.lower() for m in ["reached target", "login:", "multi-user", "sddm", "plasma", "started session"]):
                 ok = True
         # screendump toutes les 30s
         if int(time.time() - t0) // 30 > shots:

@@ -1,0 +1,5 @@
+[Unit]
+Description=Pasteque - détection des bibliothèques Steam sur disques externes
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/bin/pasteque-steamlibs

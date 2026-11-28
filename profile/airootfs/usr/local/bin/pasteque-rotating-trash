@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""Corbeille de sauvegarde rotative : copie les fichiers supprimés (corbeille KDE)
+dans ~/.local/share/pasteque-trash, plafonnée à ROTATING_TRASH_GB Go (les plus
+anciens sont écrasés). Restauration possible via pasteque-trash-restore."""
+import glob
+import os
+import shutil
+import time
+
+HOME = os.path.expanduser("~")
+TRASH = os.path.join(HOME, ".local/share/Trash/files")
+STORE = os.path.join(HOME, ".local/share/pasteque-trash")
+
+
+def conf_gb():
+    try:
+        for line in open("/etc/pasteque/pasteque.conf"):
+            if line.strip().startswith("ROTATING_TRASH_GB="):
+                return float(line.split("=", 1)[1].strip())
+    except OSError:
+        pass
+    return 10.0
+
+
+def main():
+    os.makedirs(STORE, exist_ok=True)
+    now = time.time()
+    for f in glob.glob(os.path.join(TRASH, "*")):
+        dest = os.path.join(STORE, os.path.basename(f) + "." + str(int(now)))
+        if not os.path.exists(dest):
+            try:
+                if os.path.isdir(f) and not os.path.islink(f):
+                    shutil.copytree(f, dest, symlinks=True)
+                else:
+                    shutil.copy2(f, dest)
+            except OSError:
+                pass
+    # plafonnement : supprimer les plus anciens au-delà de la taille max
+    cap = conf_gb() * 1024 ** 3
+    entries = sorted(glob.glob(os.path.join(STORE, "*")), key=os.path.getmtime)
+    total = 0
+    sizes = []
+    for e in entries:
+        try:
+            s = os.path.getsize(e) if os.path.isfile(e) else sum(
+                os.path.getsize(os.path.join(r, x)) for r, _, fs in os.walk(e) for x in fs)
+        except OSError:
+            s = 0
+        sizes.append((e, s))
+        total += s
+    for e, s in sizes:
+        if total <= cap:
+            break
+        try:
+            if os.path.isdir(e) and not os.path.islink(e):
+                shutil.rmtree(e)
+            else:
+                os.remove(e)
+        except OSError:
+            pass
+        total -= s
+
+
+if __name__ == "__main__":
+    main()

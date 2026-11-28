@@ -1,0 +1,10 @@
+// Pastèque : le groupe wheel peut lancer la mise à jour système sans mot de passe
+// (programme root fixe et non modifiable par l'utilisateur : /usr/local/bin/pasteque-update)
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        subject.isInGroup("wheel")) {
+        if (action.lookup("program") == "/usr/local/bin/pasteque-update") {
+            return polkit.Result.YES;
+        }
+    }
+});

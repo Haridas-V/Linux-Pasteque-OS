@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Guide/enrôlement Secure Boot pour Pastèque Linux.
+# La chaîne : shim signé Microsoft (db) -> grubx64.efi signé Pastèque (MOK) -> noyau signé -> modules signés.
+# Au 1er boot avec Secure Boot ACTIVÉ, il faut enrôler la clé publique Pastèque dans le MOK.
+set -u
+MOK=/usr/share/pasteque/mok/Pasteque.der
+echo "== État Secure Boot =="
+mokutil --sb-state 2>/dev/null || echo "mokutil absent (pacman -S mokutil)"
+echo
+echo "== Empreinte de la clé Pastèque à enrôler =="
+openssl x509 -in "$MOK" -inform DER -noout -fingerprint -sha256 2>/dev/null || echo "[pasteque-secureboot] DER $MOK absent ou illisible (build incomplet ?)" >&2
+if [ -f /usr/share/pasteque/mok/FINGERPRINT.txt ]; then cat /usr/share/pasteque/mok/FINGERPRINT.txt; else echo "[pasteque-secureboot] FINGERPRINT.txt absent" >&2; fi
+echo
+echo "== Enrôlement (à faire UNE fois, Secure Boot ON) =="
+echo "  sudo mokutil --import $MOK"
+echo "  -> mot de passe temporaire demandé, puis REDÉMARRAGE"
+echo "  -> au boot, écran bleu MokManager :选择 'Enroll key' -> 'Continue' -> entrer le mot de passe -> reboot"
+echo
+echo "== Vérification =="
+echo "  mokutil --test-key $MOK   (doit dire que la clé est dans le MOK)"
+echo "  mokutil --sb-state        (doit dire 'SecureBoot enabled')"

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Microsoft Teams
+Comment=Collaboration Microsoft Teams
+Exec=teams-for-linux
+Icon=teams
+Type=Application
+Categories=Network;Office;

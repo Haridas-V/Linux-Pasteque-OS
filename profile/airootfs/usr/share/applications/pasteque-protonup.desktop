@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ProtonUp-Qt (versions Proton/Wine)
+Comment=Installer/gérer Proton-GE, Wine-GE, etc. (hors-ligne, embarqué)
+Exec=/usr/local/bin/protonup-qt
+Icon=applications-games
+Terminal=false
+Categories=Game;Utility;

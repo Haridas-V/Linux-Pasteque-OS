@@ -1,0 +1,33 @@
+{
+  "note": "Statut anti-cheat des principaux jeux (source : areweanticheatyet.com / ProtonDB). Maj avec les paquets.",
+  "appids": {
+    "730":   {"name": "Counter-Strike 2", "status": "OK", "detail": "VAC / anti-cheat Valve compatible Linux"},
+    "570":   {"name": "Dota 2", "status": "OK", "detail": "VAC compatible"},
+    "440":   {"name": "Team Fortress 2", "status": "OK", "detail": "VAC compatible"},
+    "252490": {"name": "Rust", "status": "OK", "detail": "Easy Anti Cheat compatible Linux"},
+    "578080": {"name": "PUBG", "status": "KO", "detail": "BattlEye non compatible Linux (sauf option Proton expérimental)"},
+    "359550": {"name": "Tom Clancy's Rainbow Six Siege", "status": "KO", "detail": "BattlEye bloque Linux"},
+    "1938090": {"name": "Call of Duty", "status": "KO", "detail": "Ricoshet anti-cheat bloque Linux"},
+    "2881570": {"name": "Valorant", "status": "KO", "detail": "Vanguard kernel-level, incompatible Linux"},
+    "271590": {"name": "GTA V", "status": "KO", "detail": "BattlEye bloque le mode en ligne Linux"},
+    "292030": {"name": "The Witcher 3", "status": "OK", "detail": "pas d'anti-cheat"},
+    "1245620": {"name": "Elden Ring", "status": "OK", "detail": "Easy Anti Cheat compatible Linux"},
+    "1172470": {"name": "Apex Legends", "status": "OK", "detail": "EAC compatible Linux depuis 2024 (Steam Deck verifie)"},
+    "252950":  {"name": "Rocket League", "status": "OK", "detail": "compatible Proton (Steam Deck verifie)"},
+    "1097150": {"name": "Fall Guys", "status": "OK", "detail": "EAC compatible Linux"},
+    "2139460": {"name": "Diablo IV", "status": "OK", "detail": "pas d'anti-cheat bloquant"}
+  },
+  "games": {
+    "fortnite": {"name": "Fortnite (Epic Games)", "launcher": "Heroic", "anticheat": "Easy Anti Cheat",
+      "status": "OK", "detail": "Jouable EN LIGNE sous Linux via Proton-GE : EAC active par Epic depuis dec. 2022 (Steam Deck verifie). Installer via Heroic (compte Epic), regler la compatibilite sur Proton-GE, lancer. Voir docs/JEUX_EN_LIGNE.md."},
+    "gta online": {"name": "GTA Online (Rockstar)", "launcher": "Heroic/Steam", "anticheat": "BattlEye", "status": "KO", "detail": "mode en ligne bloque sous Linux"},
+    "valorant": {"name": "Valorant (Riot)", "launcher": "Lutris", "anticheat": "Vanguard", "status": "KO", "detail": "Vanguard kernel-level, incompatible Linux"}
+  },
+  "anticheats": {
+    "Easy Anti Cheat": "souvent compatible Linux (à activer côté développeur)",
+    "BattlEye": "souvent incompatible Linux",
+    "Vanguard (Riot)": "incompatible Linux (kernel-level)",
+    "RICOCHET (CoD)": "incompatible Linux",
+    "FACEIT": "incompatible Linux"
+  }
+}

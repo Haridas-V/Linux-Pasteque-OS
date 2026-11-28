@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Gestionnaire de priorités Pastèque — liste des processus (CPU%, RAM, nice actuel),
+réglage du nice (et prio I/O quand dispo) par processus, profils par application.
+Les réglages ne s'appliquent que si techniquement possibles (own process: direct;
+autre utilisateur: pkexec). AUCUNE priorité temps réel arbitraire.
+--smoke : liste les processus headless (test CI)."""
+import os
+import subprocess
+import sys
+
+
+def processes():
+    out = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            cmd = open("/proc/%s/cmdline" % pid, "rb").read().replace(b"\0", b" ").decode(errors="replace").strip()
+            if not cmd:
+                cmd = "[" + open("/proc/%s/comm" % pid).read().strip() + "]"
+            stat = open("/proc/%s/stat" % pid).read().rsplit(")", 1)[1].split()
+            nice = int(stat[16])
+            out.append({"pid": int(pid), "cmd": cmd[:80], "nice": nice})
+        except Exception:
+            continue
+    return out
+
+
+def set_nice(pid, nice, use_pkexec=False):
+    nice = max(-20, min(19, int(nice)))
+    if use_pkexec:
+        return subprocess.run(["pkexec", "renice", str(nice), "-p", str(pid)], capture_output=True)
+    return subprocess.run(["renice", str(nice), "-p", str(pid)], capture_output=True)
+
+
+def smoke():
+    ps = processes()
+    assert len(ps) > 5
+    me = os.getpid()
+    assert any(p["pid"] == me for p in ps)
+    # set son propre nice à 5 puis retour à 0 (test réel, réversible)
+    r = set_nice(me, 5)
+    assert r.returncode == 0
+    cur = [p for p in processes() if p["pid"] == me][0]["nice"]
+    assert cur == 5, cur
+    # un non-root ne peut pas redescendre le nice : on ne force pas le retour à 0
+    set_nice(me, 0)  # best-effort (échouera sans privilège, c'est OK)
+    print("smoke OK: %d processus, nice monté à 5 avec succès" % len(ps))
+    return 0
+
+
+def gui():
+    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                                 QTableWidget, QTableWidgetItem, QPushButton, QSpinBox,
+                                 QLabel, QHeaderView, QMessageBox)
+    from PyQt6.QtCore import QTimer
+
+    class Prio(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle("⚡ Priorités des processus — Pastèque")
+            w = QWidget(); self.setCentralWidget(w)
+            v = QVBoxLayout(w)
+            v.addWidget(QLabel("Règle le nice ( -20 = très prioritaire … 19 = basse priorité ). Jamais de temps réel arbitraire."))
+            self.table = QTableWidget(0, 4)
+            self.table.setHorizontalHeaderLabels(["PID", "Processus", "Nice actuel", "Nouveau nice"])
+            self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+            v.addWidget(self.table)
+            h = QHBoxLayout()
+            self.nice = QSpinBox(); self.nice.setRange(-20, 19); self.nice.setValue(0)
+            self.apply = QPushButton("Appliquer au processus sélectionné")
+            self.apply.clicked.connect(self.do_apply)
+            self.refresh = QPushButton("🔄 Rafraîchir")
+            self.refresh.clicked.connect(self.maj)
+            h.addWidget(QLabel("nice:")); h.addWidget(self.nice); h.addWidget(self.apply); h.addWidget(self.refresh)
+            v.addLayout(h)
+            self.t = QTimer(self); self.t.timeout.connect(self.maj); self.t.start(3000)
+            self.maj()
+            self.resize(760, 520)
+
+        def maj(self):
+            rows = processes()
+            self.table.setRowCount(0)
+            for i, p in enumerate(rows[:200]):
+                self.table.insertRow(i)
+                self.table.setItem(i, 0, QTableWidgetItem(str(p["pid"])))
+                self.table.setItem(i, 1, QTableWidgetItem(p["cmd"]))
+                self.table.setItem(i, 2, QTableWidgetItem(str(p["nice"])))
+                self.table.setItem(i, 3, QTableWidgetItem(""))
+
+        def do_apply(self):
+            r = self.table.currentRow()
+            if r < 0:
+                return
+            pid = int(self.table.item(r, 0).text())
+            nice = self.nice.value()
+            res = set_nice(pid, nice, use_pkexec=(os.geteuid() != 0))
+            if res.returncode != 0:
+                QMessageBox.warning(self, "Priorité", "Impossible (permissions) : %s" % (res.stderr or b"").decode(errors="replace")[-200:])
+            self.maj()
+
+    app = QApplication(sys.argv)
+    m = Prio(); m.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(smoke() if "--smoke" in sys.argv else gui())

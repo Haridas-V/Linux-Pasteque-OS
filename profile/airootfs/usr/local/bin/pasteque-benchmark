@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""Benchmark Pastèque — CPU (openssl speed), RAM (dd), disque (dd), GPU (vkcube si GPU),
+résultats mesurés (jamais estimés) sauvegardés en JSON avec historique + export.
+--smoke : mini-bench headless rapide (test CI)."""
+import json
+import os
+import subprocess
+import sys
+import time
+
+HIST = os.path.expanduser("~/.local/share/pasteque/bench-history.json")
+
+
+def bench_cpu(seconds=2):
+    r = subprocess.run(["openssl", "speed", "-seconds", str(seconds), "rsa2048"],
+                       capture_output=True, text=True, timeout=seconds + 30)
+    # ligne de données : "rsa 2048 bits 0.000123s 0.000045s 8123.4 22222.2" -> score = sign/s (avant-dernier champ)
+    ops = None
+    for line in r.stdout.splitlines():
+        t = line.split()
+        if len(t) >= 6 and t[0] == "rsa" and "bits" in t:
+            try:
+                ops = float(t[-2])
+            except Exception:
+                pass
+    return {"type": "cpu", "detail": "openssl speed rsa2048 %ds (sign/s)" % seconds, "score": ops, "unit": "sign/s"}
+
+
+def bench_ram(mb=256):
+    t0 = time.time()
+    r = subprocess.run(["dd", "if=/dev/zero", "of=/tmp/pasteque-bench-ram", "bs=1M",
+                        "count=%d" % mb], capture_output=True, text=True)
+    dt = time.time() - t0
+    os.path.exists("/tmp/pasteque-bench-ram") and os.unlink("/tmp/pasteque-bench-ram")
+    mbps = mb / dt if dt > 0 else 0
+    return {"type": "ram", "detail": "dd %d Mo" % mb, "score": round(mbps, 1), "unit": "Mo/s"}
+
+
+def bench_disk(gb=1):
+    t0 = time.time()
+    subprocess.run(["dd", "if=/dev/zero", "of=/tmp/pasteque-bench-disk", "bs=1M",
+                    "count=%d" % (gb * 1024), "oflag=direct"], capture_output=True, timeout=300)
+    subprocess.run(["sync"], capture_output=True)
+    dt = time.time() - t0
+    p = "/tmp/pasteque-bench-disk"
+    os.path.exists(p) and os.unlink(p)
+    mbps = gb * 1024 / dt if dt > 0 else 0
+    return {"type": "disque", "detail": "dd %d Go oflag=direct" % gb, "score": round(mbps, 1), "unit": "Mo/s"}
+
+
+def bench_gpu():
+    if not subprocess.run(["which", "vkcube"], capture_output=True).returncode == 0:
+        return {"type": "gpu", "detail": "vkcube absent (vulkan-tools)", "score": None}
+    r = subprocess.run(["vkcube", "--frames", "60"], capture_output=True, text=True, timeout=120,
+                       env=dict(os.environ, QT_QPA_PLATFORM="offscreen"))
+    fps = None
+    for line in r.stdout.splitlines():
+        if "fps" in line.lower():
+            try:
+                fps = float(line.split()[-1])
+            except Exception:
+                pass
+    return {"type": "gpu", "detail": "vkcube 60 frames (GPU réel requis; en VM = non mesurable)", "score": fps, "unit": "FPS"}
+
+
+def load_hist():
+    try:
+        return json.load(open(HIST))
+    except Exception:
+        return []
+
+
+def save_hist(h):
+    os.makedirs(os.path.dirname(HIST), exist_ok=True)
+    json.dump(h, open(HIST, "w"), indent=1)
+
+
+def run_all(quick=False):
+    res = {"date": time.strftime("%Y-%m-%d %H:%M:%S"), "results": []}
+    res["results"].append(bench_cpu(1 if quick else 3))
+    res["results"].append(bench_ram(128 if quick else 512))
+    res["results"].append(bench_disk(1))
+    res["results"].append(bench_gpu())
+    h = load_hist()
+    h.append(res)
+    save_hist(h[-50:])
+    return res
+
+
+def smoke():
+    res = run_all(quick=True)
+    kinds = {r["type"] for r in res["results"]}
+    assert {"cpu", "ram", "disque"} <= kinds
+    assert any(r["type"] == "cpu" and r["score"] for r in res["results"])
+    print("smoke OK:", json.dumps(res["results"], ensure_ascii=False)[:300])
+    return 0
+
+
+def gui():
+    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                                 QPushButton, QTableWidget, QTableWidgetItem, QLabel, QHeaderView)
+    import threading
+
+    class Bench(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.setWindowTitle("🧪 Benchmark — Pastèque")
+            w = QWidget(); self.setCentralWidget(w)
+            v = QVBoxLayout(w)
+            v.addWidget(QLabel("Résultats MESURÉS (jamais estimés). Historique sauvegardé + exportable en JSON."))
+            self.table = QTableWidget(0, 4)
+            self.table.setHorizontalHeaderLabels(["Test", "Détail", "Score", "Unité"])
+            self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+            v.addWidget(self.table)
+            h = QHBoxLayout()
+            self.run_btn = QPushButton("▶ Lancer le benchmark")
+            self.run_btn.clicked.connect(self.lancer)
+            self.export_btn = QPushButton("💾 Exporter l'historique (JSON)")
+            self.export_btn.clicked.connect(self.export)
+            h.addWidget(self.run_btn); h.addWidget(self.export_btn)
+            v.addLayout(h)
+            self.maj_hist()
+            self.resize(720, 480)
+
+        def lancer(self):
+            self.run_btn.setEnabled(False)
+            def work():
+                res = run_all()
+                self.res = res
+                self.maj(res)
+            threading.Thread(target=work, daemon=True).start()
+
+        def maj(self, res=None):
+            res = res or (load_hist()[-1] if load_hist() else None)
+            self.table.setRowCount(0)
+            if not res:
+                return
+            for i, r in enumerate(res["results"]):
+                self.table.insertRow(i)
+                self.table.setItem(i, 0, QTableWidgetItem(r["type"]))
+                self.table.setItem(i, 1, QTableWidgetItem(r["detail"]))
+                self.table.setItem(i, 2, QTableWidgetItem(str(r["score"])))
+                self.table.setItem(i, 3, QTableWidgetItem(r.get("unit", "")))
+            self.run_btn.setEnabled(True)
+
+        def maj_hist(self):
+            self.maj()
+
+        def export(self):
+            p = os.path.expanduser("~/benchmark-pasteque-%s.json" % time.strftime("%Y%m%d-%H%M%S"))
+            json.dump(load_hist(), open(p, "w"), indent=1)
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "Export", "Historique exporté :\n" + p)
+
+    app = QApplication(sys.argv)
+    m = Bench(); m.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(smoke() if "--smoke" in sys.argv else gui())

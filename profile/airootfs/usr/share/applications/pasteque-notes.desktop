@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=📝 Notes rapides
+Comment=App Pastèque native
+Exec=/usr/local/bin/pasteque-notes
+Icon=Utility
+Terminal=false
+Categories=text-x-generic;

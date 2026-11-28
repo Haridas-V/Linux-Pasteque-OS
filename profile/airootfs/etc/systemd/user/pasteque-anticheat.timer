@@ -1,0 +1,7 @@
+[Unit]
+Description=Anti-cheat Pastèque (à la connexion + toutes les heures)
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+[Install]
+WantedBy=timers.target

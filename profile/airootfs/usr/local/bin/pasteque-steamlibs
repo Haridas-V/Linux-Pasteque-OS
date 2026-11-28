@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Détecte les bibliothèques Steam sur disques externes/second SSD
+(/run/media, /mnt) et les enregistre dans libraryfolders.vdf de chaque utilisateur.
+"""
+import glob
+import os
+import re
+
+
+def find_libraries():
+    roots = glob.glob("/run/media/*/*") + glob.glob("/run/media/*") + glob.glob("/mnt/*") + glob.glob("/media/*/*")
+    libs = []
+    for r in roots:
+        for cand in (os.path.join(r, "SteamLibrary"), os.path.join(r, "steamapps")):
+            if os.path.isdir(cand):
+                lib = os.path.dirname(cand) if cand.endswith("steamapps") else cand
+                if lib not in libs:
+                    libs.append(lib)
+    return libs
+
+
+def update_vdf(path, libs):
+    if not os.path.isdir(os.path.dirname(path)):
+        return
+    existing = open(path).read() if os.path.exists(path) else '"libraryfolders"\n{\n}\n'
+    have = set(re.findall(r'"path"\s*"([^"]+)"', existing))
+    idx = 0
+    for m in re.finditer(r'"(\d+)"\s*\{', existing):
+        idx = max(idx, int(m.group(1)) + 1)
+    add = ""
+    for lib in libs:
+        if lib in have:
+            continue
+        add += '\t"%d"\n\t{\n\t\t"path"\t\t"%s"\n\t\t"label"\t\t""\n\t\t"apps"\t\t{}\n\t}\n' % (idx, lib)
+        idx += 1
+    if not add:
+        return
+    new = existing.rstrip()
+    assert new.endswith("}")
+    new = new[:-1].rstrip()
+    if not new.endswith("}"):
+        new += ",\n"
+    else:
+        new += "\n"
+    new += add + "}\n"
+    with open(path, "w") as f:
+        f.write(new)
+
+
+def main():
+    libs = find_libraries()
+    if not libs:
+        return
+    for h in glob.glob("/home/*"):
+        vdf = os.path.join(h, ".steam/steamapps/libraryfolders.vdf")
+        os.makedirs(os.path.dirname(vdf), exist_ok=True)
+        update_vdf(vdf, libs)
+
+
+if __name__ == "__main__":
+    main()

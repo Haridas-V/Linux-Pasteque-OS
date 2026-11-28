@@ -1,0 +1,3 @@
+#!/bin/bash
+# Lance ProtonUp-Qt embarqué (AppImage hors-ligne)
+exec /opt/pasteque/extras/protonup-qt/*.AppImage "$@"

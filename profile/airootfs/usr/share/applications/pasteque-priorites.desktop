@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=⚡ Priorités des processus
+Exec=/usr/local/bin/pasteque-priorites
+Icon=System
+Terminal=false
+Categories=utilities-system-monitor;

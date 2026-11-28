@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""Watchdog de boot : si un flag update-pending existe, attendre que la session
+soit atteinte. Si OK -> flag cleared. Si timeout -> rollback Btrfs + reboot."""
+import os
+import subprocess
+import time
+
+FLAG = "/var/lib/pasteque/update-pending"
+SNAPDIR = "/.snapshots"
+TIMEOUT = 600
+
+
+def session_ok():
+    # la session graphique est atteinte -> boot OK
+    r = subprocess.run(["systemctl", "is-active", "graphical.target"], capture_output=True, text=True)
+    if r.stdout.strip() == "active":
+        return True
+    # repli : au moins une session logind ouverte
+    r = subprocess.run(["busctl", "get-property", "org.freedesktop.login1",
+                        "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "Sessions"],
+                       capture_output=True, text=True)
+    return r.returncode == 0 and r.stdout.count("(") >= 1
+
+
+def main():
+    if not os.path.exists(FLAG):
+        return
+    post = open(FLAG).read().strip()
+    t0 = time.time()
+    while time.time() - t0 < TIMEOUT:
+        if session_ok():
+            os.remove(FLAG)
+            print("[pasteque-bootcheck] boot OK, snapshot", post, "validé")
+            return
+        time.sleep(10)
+    # boot KO -> rollback
+    target = os.path.join(SNAPDIR, post)
+    if os.path.exists(target):
+        subprocess.run(["btrfs", "subvolume", "set-default", target, "/"], capture_output=True)
+        print("[pasteque-bootcheck] boot KO -> rollback vers", post)
+        subprocess.run(["systemctl", "reboot"])
+
+
+if __name__ == "__main__":
+    main()

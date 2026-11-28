@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Applique le niveau d'immuabilité de /etc/pasteque/pasteque.conf :
+# niveau >= 3 -> /usr monté en lecture seule via overlayfs (upperdir sur /var).
+set -e
+LEVEL=$(awk -F= '/^IMMUTABILITY_LEVEL=/{print $2}' /etc/pasteque/pasteque.conf 2>/dev/null || echo 0)
+[ "${LEVEL:-0}" -ge 3 ] || exit 0
+mkdir -p /var/lib/pasteque/overlay/usr-upper /var/lib/pasteque/overlay/usr-work
+mount -t overlay overlay -o "lowerdir=/usr,upperdir=/var/lib/pasteque/overlay/usr-upper,workdir=/var/lib/pasteque/overlay/usr-work" /usr

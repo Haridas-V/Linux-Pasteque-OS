@@ -1,0 +1,10 @@
+[Unit]
+Description=Pasteque - immuabilité de /usr (niveau réglable dans pasteque.conf)
+DefaultDependencies=no
+Before=local-fs.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pasteque-immutable-usr
+RemainAfterExit=yes
+[Install]
+WantedBy=local-fs.target

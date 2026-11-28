@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=🧪 Benchmark
+Exec=/usr/local/bin/pasteque-benchmark
+Icon=System
+Terminal=false
+Categories=utilities-system-monitor;
